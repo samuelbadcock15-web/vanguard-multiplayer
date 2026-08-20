@@ -18,20 +18,23 @@
         .spawn-node span:first-child { font-size: 32px; font-weight: bold; }
         .spawn-node span:last-child { font-size: 14px; color: #ffd700; margin-top: 4px; font-weight: bold; }
 
-        /* Massive 6x D-Pad Controls (Bottom Left) */
-        #dpad { position: absolute; bottom: 20px; left: 20px; width: 300px; height: 300px; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 10px; z-index: 250; touch-action: none; opacity: 0.65; }
-        .d-btn { background: rgba(255,255,255,0.12); border: 2px solid rgba(255,255,255,0.25); border-radius: 16px; display: flex; justify-content: center; align-items: center; color: #fff; font-weight: bold; font-size: 36px; cursor: pointer; }
+        /* D-Pad Controls - Hidden by default on PC, shown dynamically via JS/CSS on mobile touch devices */
+        .dpad { position: absolute; bottom: 25px; width: 340px; height: 340px; display: none; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 12px; z-index: 250; touch-action: none; opacity: 0.65; }
+        #dpad-left { left: 130px; }
+        #dpad-right { right: 25px; }
+        
+        .d-btn { background: rgba(255,255,255,0.12); border: 2px solid rgba(255,255,255,0.25); border-radius: 20px; display: flex; justify-content: center; align-items: center; color: #fff; font-weight: bold; font-size: 42px; cursor: pointer; -webkit-touch-callout: none; }
         .d-btn:active { background: rgba(0,255,204,0.35); }
-        #d-up { grid-column: 2; grid-row: 1; }
-        #d-left { grid-column: 1; grid-row: 2; }
-        #d-right { grid-column: 3; grid-row: 2; }
-        #d-down { grid-column: 2; grid-row: 3; }
-        #d-center { grid-column: 2; grid-row: 2; background: rgba(0,0,0,0.3); font-size: 14px; color: #aaa; border-radius: 50%; }
+        .d-up { grid-column: 2; grid-row: 1; }
+        .d-left { grid-column: 1; grid-row: 2; }
+        .d-right { grid-column: 3; grid-row: 2; }
+        .d-down { grid-column: 2; grid-row: 3; }
+        .d-center { grid-column: 2; grid-row: 2; background: rgba(0,0,0,0.3); font-size: 16px; color: #aaa; border-radius: 50%; display: flex; justify-content: center; align-items: center; }
 
         /* Top Right Info Button & Popout */
         #info-container { position: absolute; top: 20px; right: 20px; z-index: 200; }
         #info-btn { width: 36px; height: 36px; background: rgba(0,0,0,0.7); color: #ffd700; border: 2px solid #ffd700; border-radius: 50%; font-weight: bold; font-size: 20px; display: flex; justify-content: center; align-items: center; cursor: pointer; }
-        #hud { position: absolute; top: 45px; right: 0; color: #fff; background: rgba(0,0,0,.85); padding: 15px; border-radius: 5px; font-size: 12px; line-height: 1.4; width: 260px; display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.5); border: 1px solid #444; }
+        #hud { position: absolute; top: 45px; right: 0; color: #fff; background: rgba(0,0,0,.85); padding: 15px; border-radius: 5px; font-size: 12px; line-height: 1.4; width: 300px; display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.5); border: 1px solid #444; }
         #info-container:hover #hud, #info-container:active #hud { display: block; }
 
         /* Matchmaking Status Overlay */
@@ -66,23 +69,39 @@
         </div>
     </div>
 
-    <!-- Massive Transparent D-Pad Controls -->
-    <div id="dpad">
-        <div id="d-up" class="d-btn" ontouchstart="keys['KeyW']=true" ontouchend="keys['KeyW']=false" onmousedown="keys['KeyW']=true" onmouseup="keys['KeyW']=false">▲</div>
-        <div id="d-left" class="d-btn" ontouchstart="keys['KeyA']=true" ontouchend="keys['KeyA']=false" onmousedown="keys['KeyA']=true" onmouseup="keys['KeyA']=false">◀</div>
-        <div id="d-center" class="d-btn">MOVE</div>
-        <div id="d-right" class="d-btn" ontouchstart="keys['KeyD']=true" ontouchend="keys['KeyD']=false" onmousedown="keys['KeyD']=true" onmouseup="keys['KeyD']=false">▶</div>
-        <div id="d-down" class="d-btn" ontouchstart="keys['KeyS']=true" ontouchend="keys['KeyS']=false" onmousedown="keys['KeyS']=true" onmouseup="keys['KeyS']=false">▼</div>
+    <!-- D-Pad Controls on BOTTOM LEFT (Mobile Only) -->
+    <div id="dpad-left" class="dpad">
+        <div class="d-up d-btn" ontouchstart="handleTouch(event, 'KeyW', true)" ontouchend="handleTouch(event, 'KeyW', false)">▲</div>
+        <div class="d-left d-btn" ontouchstart="handleTouch(event, 'KeyA', true)" ontouchend="handleTouch(event, 'KeyA', false)">◀</div>
+        <div class="d-center d-btn">MOVE</div>
+        <div class="d-right d-btn" ontouchstart="handleTouch(event, 'KeyD', true)" ontouchend="handleTouch(event, 'KeyD', false)">▶</div>
+        <div class="d-down d-btn" ontouchstart="handleTouch(event, 'KeyS', true)" ontouchend="handleTouch(event, 'KeyS', false)">▼</div>
+    </div>
+
+    <!-- D-Pad Controls on BOTTOM RIGHT (Mobile Only) -->
+    <div id="dpad-right" class="dpad">
+        <div class="d-up d-btn" ontouchstart="handleTouch(event, 'KeyW', true)" ontouchend="handleTouch(event, 'KeyW', false)">▲</div>
+        <div class="d-left d-btn" ontouchstart="handleTouch(event, 'KeyA', true)" ontouchend="handleTouch(event, 'KeyA', false)">◀</div>
+        <div class="d-center d-btn">MOVE</div>
+        <div class="d-right d-btn" ontouchstart="handleTouch(event, 'KeyD', true)" ontouchend="handleTouch(event, 'KeyD', false)">▶</div>
+        <div class="d-down d-btn" ontouchstart="handleTouch(event, 'KeyS', true)" ontouchend="handleTouch(event, 'KeyS', false)">▼</div>
     </div>
 
     <div id="info-container">
         <div id="info-btn" onclick="let h=document.getElementById('hud'); h.style.display=h.style.display==='block'?'none':'block';">i</div>
         <div id="hud">
-            <b>MOBILE & PC STRATEGY</b> (+15 gold/s)<br><br>
-            <b>Spawn:</b> Left Sidebar Nodes or [1] Infantry | [2] Tank | [3] Heli<br><br>
-            <b>Select / Build:</b> Tap / Click Structure or Unit<br>
-            <b>Move / Attack:</b> Tap ground or Enemy<br>
-            <b>Camera:</b> Use D-Pad or RMB Drag / Touch Drag
+            <b>ONLINE 1v1 STRATEGY</b> (+15 gold/s)<br><br>
+            <b>📱 MOBILE CONTROLS:</b><br>
+            • <b>Spawn Troops:</b> Tap left sidebar icons<br>
+            • <b>Camera Pan:</b> Use left or right D-Pad (+)<br>
+            • <b>Camera Look:</b> Drag finger across screen<br>
+            • <b>Select/Build:</b> Tap structures or units<br><br>
+            <b>💻 PC CONTROLS:</b><br>
+            • <b>Spawn Troops:</b> Press [1], [2], or [3]<br>
+            • <b>Camera Move:</b> WASD keys<br>
+            • <b>Camera Look:</b> Hold RMB & drag mouse<br>
+            • <b>Select/Move:</b> Left-Click (LMB)<br>
+            • <b>Double-Click:</b> Buy / Upgrade structures
         </div>
     </div>
 
@@ -94,7 +113,7 @@
     <div id="game-over-screen"></div>
 
     <script>
-        const socket = io("https://clear-horizons-q3u1.onrender.com", {
+        const socket = io("https://the-king-s-road-1.onrender.com", {
             transports: ['websocket', 'polling'],
             secure: true,
             reconnection: true,
@@ -105,6 +124,19 @@
         let myTeam = 'player';
         let matchStarted = false;
         let currentRoomId = null;
+
+        // Auto-detect mobile/touch devices and display the D-Pads automatically
+        window.addEventListener('DOMContentLoaded', () => {
+            const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+            if (isTouchDevice) {
+                document.querySelectorAll('.dpad').forEach(el => el.style.display = 'grid');
+            }
+        });
+
+        function handleTouch(e, key, isPressed) {
+            e.preventDefault(); 
+            keys[key] = isPressed;
+        }
 
         socket.on('waiting_for_opponent', () => {
             document.getElementById('match-status-text').innerText = "WAITING FOR OPPONENT TO CONNECT...";
@@ -226,6 +258,9 @@
                 yaw -= e.movementX * 0.002; 
                 pitch = Math.max(-1.5, Math.min(1.5, pitch - e.movementY * 0.002)); 
                 camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ')); 
+            });
+            document.body.addEventListener('mouseup', e => {
+                if(e.button === 2) isRmbDown = false;
             });
 
             window.addEventListener('touchstart', e => {
