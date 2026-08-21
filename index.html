@@ -50,7 +50,7 @@
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
-                [W/A/S/D] MOVE | [MOUSE] AIM | SHOOT BASE MAN/PAD FOR UNITS<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | RAM FOES TO CRUSH!
+                [W/A/S/D] MOVE | [MOUSE] AIM | SHOOT BASE MAN OR [F]/[G] FOR UNITS<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | RAM FOES TO CRUSH!
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
@@ -502,6 +502,7 @@ function animate() {
     document.getElementById('base-hp-fill').style.width = playerBaseHP + '%'; document.getElementById('base-hp-text').innerText = 'BASE: ' + Math.round(playerBaseHP) + '%';
     document.getElementById('ai-base-hp-fill').style.width = enemyBaseHP + '%'; document.getElementById('ai-base-hp-text').innerText = 'BASE: ' + Math.round(enemyBaseHP) + '%';
     document.getElementById('player-gold').innerText = playerGold;
+    document.getElementById('enemy-gold').innerText = enemyGold;
     
     updateOverheadUI();
     updateCounters();
