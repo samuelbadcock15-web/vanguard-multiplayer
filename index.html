@@ -154,10 +154,12 @@ socket.on('unitSpawned', (data) => {
     }
 });
 
+// Update opponent health when they take a hit from you
 socket.on('shipHit', (data) => {
     enemyHP = Math.max(0, enemyHP - data.damage);
     document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
     document.getElementById('ai-text-ai').innerText = 'VESSEL: ' + Math.round(enemyHP) + '%';
+    
     if (enemyHP <= 0) {
         enemyHP = 100;
         document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
@@ -167,6 +169,7 @@ socket.on('shipHit', (data) => {
     }
 });
 
+// Handle when opponent respawns on their own screen
 socket.on('playerRespawn', (data) => {
     if (aiGroup) {
         aiGroup.position.set(data.x, data.y, data.z);
