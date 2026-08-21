@@ -101,9 +101,8 @@ socket.on('roleAssign', (data) => {
         playerSpawnPos.set(460, 0, 460);
         yaw = 0.785;
     }
-    if (playerGroup) {
-        playerGroup.position.copy(playerSpawnPos);
-        playerGroup.rotation.y = yaw;
+    if (scene) {
+        initGameWorld();
     }
 });
 
@@ -327,17 +326,13 @@ function fireWeapon() {
     });
 }
 
-function init() {
-    scene = new THREE.Scene(); 
-    scene.background = new THREE.Color(0xdce7f0);
-    scene.fog = new THREE.FogExp2(0xdce7f0, 0.0012);
-
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1200);
-    renderer = new THREE.WebGLRenderer({ antialias: true }); 
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.getElementById('three-canvas').innerHTML = ""; 
-    document.getElementById('three-canvas').appendChild(renderer.domElement);
-
+function initGameWorld() {
+    if (scene) {
+        while(scene.children.length > 0){ 
+            scene.remove(scene.children[0]); 
+        }
+    }
+    
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0xb0bec5, 0.85); hemiLight.position.set(0, 200, 0); scene.add(hemiLight);
     dirLight = new THREE.DirectionalLight(0xffffff, 1.2); dirLight.position.set(200, 300, 150); scene.add(dirLight);
 
@@ -366,17 +361,34 @@ function init() {
     enemyPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 1.0, metalness: 0.0 })); 
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
 
-    let pData = createShip(0x0088ff);
+    let myColor = myTeam === 'blue' ? 0x0088ff : 0xcc2222;
+    let pData = createShip(myColor);
     playerGroup = pData.group; turrets = pData.turrets;
-    playerGroup.position.copy(playerSpawnPos); scene.add(playerGroup); 
+    playerGroup.position.copy(playerSpawnPos); playerGroup.rotation.y = yaw; scene.add(playerGroup); 
     playerGroup.add(camera); camera.position.set(0, 7, 15); camera.lookAt(0, 0, -20);
     
-    let eData = createShip(0xcc2222); 
+    let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
+    let eData = createShip(enemyColor); 
     enemyGroup = eData.group; enemyTurrets = eData.turrets; 
-    enemyGroup.position.set(-460, 0, -460); scene.add(enemyGroup);
+    let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
+    enemyGroup.position.copy(enemyPos); scene.add(enemyGroup);
 
     snakeHead = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshBasicMaterial({ color: 0x0088ff })); 
     snakeHead.visible = false; scene.add(snakeHead);
+}
+
+function init() {
+    scene = new THREE.Scene(); 
+    scene.background = new THREE.Color(0xdce7f0);
+    scene.fog = new THREE.FogExp2(0xdce7f0, 0.0012);
+
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1200);
+    renderer = new THREE.WebGLRenderer({ antialias: true }); 
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('three-canvas').innerHTML = ""; 
+    document.getElementById('three-canvas').appendChild(renderer.domElement);
+
+    initGameWorld();
 }
 
 window.addEventListener('mousedown', (e) => {
@@ -455,6 +467,30 @@ function animate() {
         socket.emit('playerMove', { x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z, yaw: yaw });
     }
 
+    if (isDragging) {
+        let fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), sd = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+        if (keys['KeyW']) depthOffset += 0.4; if (keys['KeyS']) depthOffset -= 0.4; if (keys['KeyA']) horizOffset -= 0.4; if (keys['KeyD']) horizOffset += 0.4;
+        let rawOff = new THREE.Vector3().addScaledVector(fwd, depthOffset * blockSize).addScaledVector(sd, horizOffset * blockSize);
+        const stepsY = Math.floor(Math.abs(mouse.y - dragStartMouse.y) * 15), signY = Math.sign(mouse.y - dragStartMouse.y);
+        if ((rawOff.length() > blockSize * 0.8) || (stepsY > 0)) {
+            let lk = new THREE.Vector3(0, 0, 0); if (Math.abs(rawOff.x) > Math.abs(rawOff.z)) { lk.x = Math.round(rawOff.x / blockSize) * blockSize; } else { lk.z = Math.round(rawOff.z / blockSize) * blockSize; }
+            let lastP = startPoint.clone();
+            for (let i = 0; i <= stepsY; i++) {
+                const p = startPoint.clone(); p.y += i * signY * blockSize; p.x += lk.x; p.z += lk.z;
+                if (p.y >= 2 && canBuildHere(p, true)) { 
+                    const k = `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`; 
+                    if (!existingCubes.has(k)) { 
+                        const col = myTeam === 'blue' ? 0x0077ff : 0xd03333;
+                        const c = createCube(p, col, 0x000000, col); 
+                        scene.add(c); userBlocks.push(c); existingCubes.set(k, c); 
+                        socket.emit('placeBlock', { x: p.x, y: p.y, z: p.z });
+                    } 
+                    lastP.copy(p); 
+                }
+            } snakeHead.position.copy(lastP).add(new THREE.Vector3(0, 3, 0)); snakeHead.visible = true;
+        } else { handlePlacement(); }
+    }
+
     for (let i = snails.length - 1; i >= 0; i--) {
         let sn = snails[i];
         if (sn.markedForRemoval) {
@@ -476,7 +512,7 @@ function animate() {
                 dir.normalize();
                 sn.group.position.addScaledVector(dir, sn.moveSpeed);
                 let lookTarget = sn.group.position.clone().sub(dir);
-                sn.group.lookAt(lookTarget.x, sn.group.position.y, lookTarget.z);
+                sn.group.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
             }
             if (sn.group.position.distanceTo(tar) < 16) {
                 sn.currentWaypointIndex++;
