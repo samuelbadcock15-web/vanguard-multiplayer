@@ -45,8 +45,15 @@ io.on('connection', (socket) => {
     });
 
     socket.on('spawnUnit', (data) => {
-        // Broadcast unit creation to both clients
         io.emit('unitSpawned', data);
+    });
+
+    socket.on('shipHit', (data) => {
+        socket.broadcast.emit('shipHit', data);
+    });
+
+    socket.on('playerRespawn', (data) => {
+        socket.broadcast.emit('playerRespawn', data);
     });
 
     socket.on('disconnect', () => {
