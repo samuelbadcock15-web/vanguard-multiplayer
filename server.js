@@ -15,18 +15,21 @@ let bluePlayer = null;
 let redPlayer = null;
 
 io.on('connection', (socket) => {
-    // 1st connection = Blue (Vanguard), 2nd connection = Red (Architect)
+    // Assign roles dynamically
     if (!bluePlayer) {
         bluePlayer = socket.id;
         players[socket.id] = { team: 'blue' };
         socket.emit('roleAssign', { team: 'blue' });
+        console.log(`Blue Commander connected: ${socket.id}`);
     } else if (!redPlayer) {
         redPlayer = socket.id;
         players[socket.id] = { team: 'red' };
         socket.emit('roleAssign', { team: 'red' });
+        console.log(`Red Commander connected: ${socket.id}`);
     } else {
         players[socket.id] = { team: 'spectator' };
         socket.emit('roleAssign', { team: 'spectator' });
+        console.log(`Spectator connected: ${socket.id}`);
     }
 
     socket.on('playerMove', (data) => {
@@ -42,12 +45,19 @@ io.on('connection', (socket) => {
     });
 
     socket.on('spawnUnit', (data) => {
+        // Broadcast unit creation to both clients
         io.emit('unitSpawned', data);
     });
 
     socket.on('disconnect', () => {
-        if (socket.id === bluePlayer) bluePlayer = null;
-        if (socket.id === redPlayer) redPlayer = null;
+        if (socket.id === bluePlayer) {
+            bluePlayer = null;
+            console.log('Blue Commander disconnected.');
+        }
+        if (socket.id === redPlayer) {
+            redPlayer = null;
+            console.log('Red Commander disconnected.');
+        }
         delete players[socket.id];
         io.emit('playerLeft', { id: socket.id });
     });
