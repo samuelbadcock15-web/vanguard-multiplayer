@@ -171,12 +171,18 @@ function canBuildHere(pos, isPlayer) {
     return true;
 }
 
-// CrimsonStalker class for Base Men in corners
+// CrimsonStalker class (Base Man / Guard in the corner)
 class CrimsonStalker {
-    constructor(cHex, sHex, isYBase=false) {
+    constructor(cHex, sHex, isYBase=false, isRedRun=false, isYRun=false) {
         this.group = new THREE.Group(); this.limbs = {}; this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
-        this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0;
-        this.shatterHex = sHex; this.isYellowBaseMan = isYBase;
+        this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0; this.speed = 0.0;
+        this.shatterHex = sHex; this.isYellowBaseMan = isYBase; this.isRedRunner = isRedRun; this.isYellowRunner = isYRun;
+        
+        this.navState = 'SEEK';
+        this.wallFollowDir = Math.random() > 0.5 ? 1 : -1;
+        this.followSteps = 0;
+        this.startFollowPos = new THREE.Vector3();
+        this.currentHeading = new THREE.Vector3(0, 0, 1);
         
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
         const createPart = (n, w, h, d, y, p) => {
@@ -190,7 +196,10 @@ class CrimsonStalker {
     takeDamage(part, amt, hitPl) {
         if (this.isShattered || !this.limbs[part]) return;
         if (this.isYellowBaseMan) { 
-            if (hitPl && playerGold >= 1) { playerGold -= 1; socket.emit('spawnUnit', { type: 'runner', team: myTeam }); } 
+            if (hitPl && playerGold >= 1) { 
+                playerGold -= 1; 
+                socket.emit('spawnUnit', { type: 'runner', team: myTeam }); 
+            } 
             return; 
         }
         this.health[part] -= (part === 'head' ? amt * 3 : amt);
@@ -226,37 +235,42 @@ class CrimsonStalker {
     }
 }
 
-class CrimsonRunner {
-    constructor(cHex, isYTeam=true) {
-        this.group = new THREE.Group(); this.health = 100; this.isShattered = false; this.isYellowTeam = isYTeam;
-        this.moveSpeed = 1.2; this.currentWaypointIndex = 0; this.waypoints = isYTeam ? [new THREE.Vector3(-490, 0, 490), new THREE.Vector3(-490, 0, -490)] : [new THREE.Vector3(490, 0, -490), new THREE.Vector3(490, 0, 490)];
+class CrimsonSnail {
+    constructor(cHex, isYTeam=false) {
+        this.group = new THREE.Group(); this.health = 120; this.isShattered = false; this.isYellowTeam = isYTeam;
+        this.moveSpeed = 0.5; this.currentWaypointIndex = 0; this.waypoints = [];
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
-        const t = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.4, 0.8), mat); t.position.y = 3; this.group.add(t);
-        const h = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat); h.position.y = 4.5; this.group.add(h);
+        const sh = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 2.0, 8), mat); sh.rotation.z = Math.PI / 2; sh.position.y = 2; this.group.add(sh);
+        const b = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 4.5), mat); b.position.y = 0.5; this.group.add(b);
+        [-0.5, 0.5].forEach(o => {
+            const s = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.5), mat); s.position.set(o, 1.5, -1.8);
+            const eb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), new THREE.MeshBasicMaterial({ color: 0x111111 })); eb.position.y = 0.75;
+            s.add(eb); this.group.add(s);
+        });
         this.group.userData.entity = this; scene.add(this.group);
     }
-    update() {
+    takeDamage(amt, hitPl) {
+        if (this.isShattered) return; this.health -= amt;
+        if (this.health <= 0) { if (hitPl) playerGold += 2; this.explode(); }
+    }
+    explode() {
         if (this.isShattered) return;
-        let tar = this.waypoints[this.currentWaypointIndex];
-        let dir = new THREE.Vector3().subVectors(tar, this.group.position); dir.y = 0;
-        if (dir.length() > 0.1) {
-            dir.normalize();
-            this.group.position.addScaledVector(dir, this.moveSpeed);
-            let lookTarget = this.group.position.clone().add(dir);
-            this.group.lookAt(lookTarget.x, this.group.position.y, lookTarget.z);
-        }
-        if (this.group.position.distanceTo(tar) < 14) {
-            this.currentWaypointIndex++;
-            if (this.currentWaypointIndex >= this.waypoints.length) {
-                scene.remove(this.group);
-                this.markedForRemoval = true;
-            }
-        }
+        this.isShattered = true; this.group.visible = false; this.markedForRemoval = true;
     }
 }
 
-function spawnYellowRunner(pos) { let r = new CrimsonRunner(0x0088ff, true); r.group.position.copy(pos); runners.push(r); }
-function spawnRedRunner(pos) { let r = new CrimsonRunner(0xcc2222, false); r.group.position.copy(pos); runners.push(r); }
+function tryRecruitPlayerSnail() {
+    if (!gameActive) return; let n = Date.now(); if (n - lastRecruitTime < recruitCooldown) return;
+    if (playerGold >= 2) { 
+        playerGold -= 2; 
+        socket.emit('spawnUnit', { type: 'snail', team: myTeam });
+        lastRecruitTime = n; 
+    }
+}
+function spawnYellowSnail(pos) { playerSnailsSpawned++; let sn = new CrimsonSnail(0x0077ff, true); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460)]; snails.push(sn); }
+function spawnRedSnail(pos) { aiSnailsSpawned++; let sn = new CrimsonSnail(0xcc2222, false); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, 460)]; snails.push(sn); }
+function spawnYellowRunner(pos) { let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true); r.group.position.copy(pos); r.waypoints = [new THREE.Vector3(-490, 0, 490), new THREE.Vector3(-490, 0, -490)]; r.moveSpeed = 1.2; runners.push(r); }
+function spawnRedRunner(pos) { let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); r.group.position.copy(pos); r.waypoints = [new THREE.Vector3(490, 0, -490), new THREE.Vector3(490, 0, 490)]; r.moveSpeed = 1.2; runners.push(r); }
 
 function createAlignedWallTexture(theme, isZWall) {
     const canvas = document.createElement('canvas');
@@ -319,41 +333,6 @@ function createAlignedFloorTexture() {
     return tex;
 }
 
-class CrimsonSnail {
-    constructor(cHex, isYTeam=false) {
-        this.group = new THREE.Group(); this.health = 120; this.isShattered = false; this.isYellowTeam = isYTeam;
-        this.moveSpeed = 0.5; this.currentWaypointIndex = 0; this.waypoints = [];
-        const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
-        const sh = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 2.0, 8), mat); sh.rotation.z = Math.PI / 2; sh.position.y = 2; this.group.add(sh);
-        const b = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 4.5), mat); b.position.y = 0.5; this.group.add(b);
-        [-0.5, 0.5].forEach(o => {
-            const s = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.5), mat); s.position.set(o, 1.5, -1.8);
-            const eb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), new THREE.MeshBasicMaterial({ color: 0x111111 })); eb.position.y = 0.75;
-            s.add(eb); this.group.add(s);
-        });
-        this.group.userData.entity = this; scene.add(this.group);
-    }
-    takeDamage(amt, hitPl) {
-        if (this.isShattered) return; this.health -= amt;
-        if (this.health <= 0) { if (hitPl) playerGold += 2; this.explode(); }
-    }
-    explode() {
-        if (this.isShattered) return;
-        this.isShattered = true; this.group.visible = false; this.markedForRemoval = true;
-    }
-}
-
-function tryRecruitPlayerSnail() {
-    if (!gameActive) return; let n = Date.now(); if (n - lastRecruitTime < recruitCooldown) return;
-    if (playerGold >= 2) { 
-        playerGold -= 2; 
-        socket.emit('spawnUnit', { type: 'snail', team: myTeam });
-        lastRecruitTime = n; 
-    }
-}
-function spawnYellowSnail(pos) { playerSnailsSpawned++; let sn = new CrimsonSnail(0x0077ff, true); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460)]; snails.push(sn); }
-function spawnRedSnail(pos) { aiSnailsSpawned++; let sn = new CrimsonSnail(0xcc2222, false); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, 460)]; snails.push(sn); }
-
 function createCube(pos, col, emCol, outCol = 0x334455) {
     const g = new THREE.Group(), geo = new THREE.BoxGeometry(blockSize-0.08, blockSize-0.08, blockSize-0.08);
     const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: col, roughness: 1.0, metalness: 0.0 }));
@@ -411,12 +390,14 @@ function handlePlacement() {
         }
     }
 }
+
 function fireWeapon() {
     turrets.forEach(t => {
         const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0x0066ff : 0xff3333 })), wp = new THREE.Vector3();
         t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); raycaster.setFromCamera(mouse, camera);
         const pool = [scene, floor, recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks, aiGroup];
         stalkers.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
+        runners.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         snails.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         const hits = raycaster.intersectObjects(pool, true); if (hits.length > 0) { hits.sort((a, b) => a.distance - b.distance); tar.copy(hits[0].point); } else { raycaster.ray.at(200, tar); }
         b.lookAt(tar); 
@@ -459,9 +440,9 @@ function initGameWorld() {
     enemyPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 1.0, metalness: 0.0 })); 
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
 
-    stalkers = [];
-    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
-    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
+    stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; existingCubes.clear();
+    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false, false, false)); stalkers[0].group.position.set(-490, 0, -490);
+    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true, false, false)); stalkers[1].group.position.set(490, 0, 490);
 
     sirenGeo = new THREE.BoxGeometry(0.7, 0.25, 0.5);
     let myColor = myTeam === 'blue' ? 0x0088ff : 0xcc2222;
@@ -544,8 +525,8 @@ function updateOverheadUI() {
 function updateCounters() {
     const mySnails = snails.filter(sn => (myTeam === 'blue' ? sn.isYellowTeam : !sn.isYellowTeam) && !sn.isShattered).length;
     const enemySnails = snails.filter(sn => (myTeam === 'blue' ? !sn.isYellowTeam : sn.isYellowTeam) && !sn.isShattered).length;
-    const myRunners = runners.filter(r => (myTeam === 'blue' ? r.isYellowTeam : !r.isYellowTeam) && !r.isShattered).length;
-    const enemyRunners = runners.filter(r => (myTeam === 'blue' ? !r.isYellowTeam : r.isYellowTeam) && !r.isShattered).length;
+    const myRunners = runners.filter(r => (myTeam === 'blue' ? r.isYellowRunner : !r.isYellowRunner) && !r.isShattered).length;
+    const enemyRunners = runners.filter(r => (myTeam === 'blue' ? !r.isYellowRunner : r.isYellowRunner) && !r.isShattered).length;
     document.getElementById('vanguard-snails').innerText = mySnails;
     document.getElementById('vanguard-men').innerText = myRunners;
     document.getElementById('architect-men').innerText = enemyRunners;
@@ -562,12 +543,36 @@ function animate() {
     updateOverheadUI();
     updateCounters();
     
-    stalkers.forEach(s => s.update(playerGroup.position));
+    stalkers.forEach(s => {
+        s.update(playerGroup.position);
+        if (playerGroup.position.distanceTo(s.group.position) < 7 && !s.isShattered && !s.isYellowBaseMan) {
+            s.explode();
+            playerHP = Math.max(0, playerHP - 5);
+        }
+    });
 
     for (let i = runners.length - 1; i >= 0; i--) {
         let r = runners[i];
         if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
-        r.update();
+        if (!r.isShattered) {
+            let tar = r.waypoints[r.currentWaypointIndex];
+            let dir = new THREE.Vector3().subVectors(tar, r.group.position); dir.y = 0;
+            if (dir.length() > 0.1) {
+                dir.normalize();
+                r.group.position.addScaledVector(dir, r.moveSpeed);
+                let lookTarget = r.group.position.clone().add(dir);
+                r.group.lookAt(lookTarget.x, r.group.position.y, lookTarget.z);
+            }
+            if (r.group.position.distanceTo(tar) < 14) {
+                r.currentWaypointIndex++;
+                if (r.currentWaypointIndex >= r.waypoints.length) {
+                    scene.remove(r.group);
+                    runners.splice(i, 1);
+                }
+            }
+        } else {
+            r.update(playerGroup.position);
+        }
     }
 
     if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); playerGroup.rotation.y = yaw;
@@ -660,6 +665,7 @@ function animate() {
         if (b.userData.isPlayerBullet) { 
             pool = [recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks, aiGroup]; 
             stalkers.forEach(s => { if(!s.isShattered) pool.push(s.group); });
+            runners.forEach(s => { if(!s.isShattered) pool.push(s.group); });
             snails.forEach(s => { if(!s.isShattered) pool.push(s.group); }); 
         } else { 
             pool = [recruitmentPad, enemyPad, ...userBlocks]; 
@@ -676,7 +682,13 @@ function animate() {
                 if (b.userData.isPlayerBullet) tryRecruitPlayerSnail(); 
                 b.userData.life = 0; 
             } else {
-                let ent = null, curr = hObj; while (curr && curr !== scene) { ent = stalkers.find(s => s.group === curr); if (ent) break; curr = curr.parent; }
+                const allEntities = [...stalkers, ...runners, ...snails];
+                let ent = null, curr = hObj; 
+                while (curr && curr !== scene) { 
+                    ent = allEntities.find(s => s.group === curr); 
+                    if (ent) break; 
+                    curr = curr.parent; 
+                }
                 if (ent) {
                     if (b.userData.isPlayerBullet) {
                         if (ent.isYellowBaseMan && playerGold >= 1) {
@@ -708,6 +720,7 @@ function animate() {
     let activePad = myTeam === 'blue' ? recruitmentPad : enemyPad;
     const lPool = [activePad, ...wallMeshes, ...userBlocks, ...aiBlocks, aiGroup]; 
     stalkers.forEach(s => { if(!s.isShattered) lPool.push(s.group); });
+    runners.forEach(s => { if(!s.isShattered) lPool.push(s.group); });
     snails.forEach(s => { if(!s.isShattered) lPool.push(s.group); });
     const lHits = raycaster.intersectObjects(lPool, true); 
     let tar = new THREE.Vector3();
