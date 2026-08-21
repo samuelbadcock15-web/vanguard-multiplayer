@@ -22,15 +22,15 @@
         .control-details { margin-top: 5px; color: #444; }
         .live-metrics { font-size: 10px; color: #c86400; font-weight: bold; }
         #overhead-ui { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
-        
+
         .hp-bar, .hp-bar-ai { position: relative; width: 100px; height: 12px; background: #ccc; border: 1px solid #888; border-radius: 2px; overflow: hidden; box-sizing: border-box; }
         .hp-bar-ai { width: 140px; border-color: #009944; background: #c0ebd0; }
         #hp-fill, #base-hp-fill { height: 100%; background: #0077ff; transition: width 0.1s; }
         #base-hp-fill { background: #0044aa; }
         #ai-hp-fill, #ai-base-hp-fill { height: 100%; background: #00aa44; transition: width 0.3s; }
-        
+
         .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 8px; font-weight: bold; text-shadow: 1px 1px 2px #000; text-transform: uppercase; letter-spacing: 0.5px; z-index: 2; box-sizing: border-box; }
-        
+
         #game-over-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(240,245,250,0.95); backdrop-filter: blur(10px); z-index: 10000; display: none; flex-direction: column; align-items: center; justify-content: center; color: #111; text-align: center; border: 6px solid #0088ff; box-sizing: border-box; }
         .restart-btn { background: #0088ff; color: #fff; border: 2px solid #0066cc; padding: 10px 25px; font-size: 14px; font-weight: bold; cursor: pointer; text-transform: uppercase; border-radius: 4px; }
         .restart-btn:hover { background: #0055cc; }
@@ -50,7 +50,7 @@
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
-                [W/A/S/D] MOVE | [MOUSE] AIM | SHOOT BASE MAN OR [F]/[G] FOR UNITS<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | RAM FOES TO CRUSH!
+                [W/A/S/D] MOVE | [MOUSE] AIM | SHOOT BASE MAN/PAD FOR UNITS<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | RAM FOES TO CRUSH!
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
@@ -141,8 +141,8 @@ socket.on('unitSpawned', (data) => {
         if (data.team === 'blue') spawnBlueSnail(new THREE.Vector3(460, 0, 460));
         else spawnRedSnail(new THREE.Vector3(-460, 0, -460));
     } else if (data.type === 'runner') {
-        if (data.team === 'blue') spawnBlueRunner(new THREE.Vector3(465, 0, 465));
-        else spawnRedRunner(new THREE.Vector3(-465, 0, -465));
+        if (data.team === 'blue') spawnBlueRunner(new THREE.Vector3(490, 0, 490));
+        else spawnRedRunner(new THREE.Vector3(-490, 0, -490));
     }
 });
 
@@ -243,7 +243,8 @@ class CrimsonStalker {
     takeDamage(part, amt, hitPl) {
         if (this.isShattered || !this.limbs[part]) return;
         if (this.isBaseMan) {
-            if (hitPl && playerGold >= 1) {
+            let requiredTeam = this.isBlueTeam ? 'blue' : 'red';
+            if (hitPl && myTeam === requiredTeam && playerGold >= 1) {
                 playerGold -= 1;
                 socket.emit('spawnUnit', { type: 'runner', team: myTeam });
             }
@@ -291,10 +292,10 @@ function tryRecruitUnit(type) {
     }
 }
 
-function spawnBlueRunner(pos) { let r = new CrimsonStalker(0x0088ff, 0x00aaff, true); r.group.position.copy(pos); runners.push(r); }
-function spawnRedRunner(pos) { let r = new CrimsonStalker(0xcc2222, 0xff3333, false); r.group.position.copy(pos); runners.push(r); }
-function spawnBlueSnail(pos) { let sn = new CrimsonSnail(0x0077ff, true); sn.group.position.copy(pos); snails.push(sn); }
-function spawnRedSnail(pos) { let sn = new CrimsonSnail(0xcc2222, false); sn.group.position.copy(pos); snails.push(sn); }
+function spawnBlueRunner(pos) { let r = new CrimsonStalker(0x0088ff, 0x00aaff, true); r.group.position.copy(pos); r.waypoints = [new THREE.Vector3(-490, 0, -490)]; runners.push(r); }
+function spawnRedRunner(pos) { let r = new CrimsonStalker(0xcc2222, 0xff3333, false); r.group.position.copy(pos); r.waypoints = [new THREE.Vector3(490, 0, 490)]; runners.push(r); }
+function spawnBlueSnail(pos) { let sn = new CrimsonSnail(0x0077ff, true); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(-460, 0, -460)]; snails.push(sn); }
+function spawnRedSnail(pos) { let sn = new CrimsonSnail(0xcc2222, false); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(460, 0, 460)]; snails.push(sn); }
 
 function createCube(pos, col, emCol, outCol = 0x334455) {
     const g = new THREE.Group(), geo = new THREE.BoxGeometry(blockSize-0.08, blockSize-0.08, blockSize-0.08);
@@ -372,7 +373,6 @@ function initGameWorld() {
     if (scene) {
         while(scene.children.length > 0){ scene.remove(scene.children[0]); }
     }
-    
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0xb0bec5, 0.85); hemiLight.position.set(0, 200, 0); scene.add(hemiLight);
     dirLight = new THREE.DirectionalLight(0xffffff, 1.2); dirLight.position.set(200, 300, 150); scene.add(dirLight);
 
@@ -412,7 +412,6 @@ function initGameWorld() {
     playerGroup = pData.group; turrets = pData.turrets;
     playerGroup.position.copy(playerSpawnPos); playerGroup.rotation.y = yaw; scene.add(playerGroup); 
     playerGroup.add(camera); camera.position.set(0, 7, 15); camera.lookAt(0, 0, -20);
-    
     let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
     let eData = createShip(enemyColor); 
     enemyGroup = eData.group; 
@@ -433,7 +432,6 @@ function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
-    
     document.getElementById('three-canvas').innerHTML = ""; 
     document.getElementById('three-canvas').appendChild(renderer.domElement);
 
@@ -497,15 +495,12 @@ function updateCounters() {
 
 function animate() {
     requestAnimationFrame(animate); if (!renderer || !scene || !camera) return;
-    
     document.getElementById('hp-fill').style.width = playerHP + '%'; document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
     document.getElementById('base-hp-fill').style.width = playerBaseHP + '%'; document.getElementById('base-hp-text').innerText = 'BASE: ' + Math.round(playerBaseHP) + '%';
     document.getElementById('ai-base-hp-fill').style.width = enemyBaseHP + '%'; document.getElementById('ai-base-hp-text').innerText = 'BASE: ' + Math.round(enemyBaseHP) + '%';
     document.getElementById('player-gold').innerText = playerGold;
-    
     updateOverheadUI();
     updateCounters();
-    
     if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); playerGroup.rotation.y = yaw;
     let move = new THREE.Vector3(); if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1; if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
     const isMoving = move.length() > 0;
@@ -516,7 +511,6 @@ function animate() {
         } 
     }
     if (isFiring && fireTimer++ % 7 === 0) fireWeapon();
-    
     if (isMoving || Math.abs(mouse.x) > 0.3) {
         socket.emit('playerMove', { x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z, yaw: yaw });
     }
@@ -589,7 +583,6 @@ function animate() {
         const b = bullets[i];
         b.position.add(b.userData.velocity);
         b.userData.life--;
-        
         if(b.userData.isPlayerBullet && enemyGroup && b.position.distanceTo(enemyGroup.position) < 4) {
             enemyHP = Math.max(0, enemyHP - 5);
             b.userData.life = 0;
@@ -605,29 +598,29 @@ function animate() {
 
         const bHit = (new THREE.Raycaster(b.position, b.userData.velocity.clone().normalize(), 0, 6)).intersectObjects(pool, true);
         if(bHit.length > 0) {
-            let hObj = bHit[0].object, isPad = false, cPad = hObj; 
-            while(cPad && cPad !== scene) { 
-                if(cPad === recruitmentPad || cPad === enemyPad) { isPad = true; break; } 
-                cPad = cPad.parent; 
+            let hObj = bHit[0].object, isPad = false, cPad = hObj;
+            while(cPad && cPad !== scene) {
+                if(cPad === recruitmentPad || cPad === enemyPad) { isPad = true; break; }
+                cPad = cPad.parent;
             }
-            if (isPad) { 
-                if (b.userData.isPlayerBullet) tryRecruitUnit('runner'); 
-                b.userData.life = 0; 
+            if (isPad) {
+                if (b.userData.isPlayerBullet) tryRecruitUnit('runner');
+                b.userData.life = 0;
             } else {
-                let ent = null, curr = hObj; 
-                while (curr && curr !== scene) { 
-                    if (curr.userData && curr.userData.entity) { ent = curr.userData.entity; break; } 
-                    curr = curr.parent; 
+                let ent = null, curr = hObj;
+                while (curr && curr !== scene) {
+                    if (curr.userData && curr.userData.entity) { ent = curr.userData.entity; break; }
+                    curr = curr.parent;
                 }
                 if (ent) {
                     ent.takeDamage(hObj.userData.partName || 'torso', 40, true);
                     b.userData.life = 0;
                 } else if (hObj !== floor) {
-                    let r = hObj; while(r.parent && r.parent !== scene) r = r.parent; 
-                    existingCubes.delete(`${Math.round(r.position.x)},${Math.round(r.position.y)},${Math.round(r.position.z)}`); 
+                    let r = hObj; while(r.parent && r.parent !== scene) r = r.parent;
+                    existingCubes.delete(`${Math.round(r.position.x)},${Math.round(r.position.y)},${Math.round(r.position.z)}`);
                     scene.remove(r);
-                    userBlocks = userBlocks.filter(o => o !== r); 
-                    enemyBlocks = enemyBlocks.filter(o => o !== r); 
+                    userBlocks = userBlocks.filter(o => o !== r);
+                    enemyBlocks = enemyBlocks.filter(o => o !== r);
                     b.userData.life = 0;
                 }
             }
@@ -638,20 +631,18 @@ function animate() {
             bullets.splice(i, 1);
         }
     }
-    
     raycaster.setFromCamera(mouse, camera);
     let activePad = myTeam === 'blue' ? recruitmentPad : enemyPad;
-    const lPool = [activePad, ...wallMeshes, ...userBlocks, ...enemyBlocks, enemyGroup, ...stalkers]; 
+    const lPool = [activePad, ...wallMeshes, ...userBlocks, ...enemyBlocks, enemyGroup, ...stalkers];
     runners.forEach(s => { if(!s.isShattered) lPool.push(s.group); });
     snails.forEach(s => { if(!s.isShattered) lPool.push(s.group); });
-    const lHits = raycaster.intersectObjects(lPool, true); 
+    const lHits = raycaster.intersectObjects(lPool, true);
     let tar = new THREE.Vector3();
     if (lHits.length > 0) {
         const h = lHits[0]; tar.copy(h.point); let r = h.object; while(r.parent && r.parent !== scene) r = r.parent;
         document.getElementById('z-health').innerText = r === enemyGroup ? `HOSTILE CRAFT | ${Math.round(h.distance)}m` : (r === recruitmentPad || r === enemyPad) ? `SPAWN PAD` : `${Math.round(h.distance)}m | LOCKED`;
     } else { raycaster.ray.at(200, tar); document.getElementById('z-health').innerText = "SCANNING..."; }
     turrets.forEach(t => t.base.lookAt(tar));
-    
     renderer.render(scene, camera);
 }
 init(); animate();
