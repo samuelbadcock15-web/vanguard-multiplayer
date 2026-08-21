@@ -1,7 +1,6 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
@@ -9,14 +8,15 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 const PORT = process.env.PORT || 3000;
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Serves index.html directly from the root directory
+app.use(express.static(__dirname));
 
-let players = {}; // socket.id -> { team: 'blue' | 'red' }
+let players = {};
 let bluePlayer = null;
 let redPlayer = null;
 
 io.on('connection', (socket) => {
-    // Role Assignment: 1st connection = Blue, 2nd connection = Red
+    // 1st player is Blue, 2nd player is Red, others spectate
     if (!bluePlayer) {
         bluePlayer = socket.id;
         players[socket.id] = { team: 'blue' };
@@ -30,27 +30,27 @@ io.on('connection', (socket) => {
         socket.emit('roleAssign', { team: 'spectator' });
     }
 
-    // Vehicle Movement Relay
+    // Relay tank position and rotation
     socket.on('playerMove', (data) => {
         socket.broadcast.emit('enemyMove', data);
     });
 
-    // Shooting Relay
+    // Relay weapon fire
     socket.on('playerFire', (data) => {
         socket.broadcast.emit('enemyFire', data);
     });
 
-    // Block Placement Relay
+    // Relay placed cubes
     socket.on('placeBlock', (data) => {
         socket.broadcast.emit('blockPlaced', data);
     });
 
-    // Unit Spawning Relay
+    // Relay unit spawns
     socket.on('spawnUnit', (data) => {
         io.emit('unitSpawned', data);
     });
 
-    // Disconnection Handling
+    // Handle disconnections and free up player slots
     socket.on('disconnect', () => {
         if (socket.id === bluePlayer) bluePlayer = null;
         if (socket.id === redPlayer) redPlayer = null;
@@ -60,5 +60,5 @@ io.on('connection', (socket) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`Vanguard server listening on port ${PORT}`);
+    console.log(`Vanguard multiplayer server listening on port ${PORT}`);
 });
