@@ -13,7 +13,7 @@ let players = {};
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
 
-    // Assign roles: First player gets blue, second gets red
+    // Assign roles: First player is blue (Vanguard), second is red (Architect)
     const roleKeys = Object.keys(players);
     let role = roleKeys.length === 0 ? 'blue' : 'red';
     players[socket.id] = { role: role };
@@ -30,16 +30,16 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('spawn_unit', (data) => {
-        io.emit('unit_spawned', data);
-    });
-
     socket.on('place_block', (data) => {
         socket.broadcast.emit('block_placed', data);
     });
 
     socket.on('fire_bullet', (data) => {
         socket.broadcast.emit('bullet_fired', data);
+    });
+
+    socket.on('spawn_unit', (data) => {
+        socket.broadcast.emit('unit_spawned', data);
     });
 
     socket.on('disconnect', () => {
