@@ -13,7 +13,7 @@ let players = {};
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
 
-    // Assign roles: First player is blue (Vanguard), second is red (Architect)
+    // Assign roles: First player is blue (Vanguard), second player is red (Architect)
     const roleKeys = Object.keys(players);
     let role = roleKeys.length === 0 ? 'blue' : 'red';
     players[socket.id] = { role: role };
@@ -39,7 +39,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('spawn_unit', (data) => {
-        socket.broadcast.emit('unit_spawned', data);
+        io.emit('unit_spawned', data);
     });
 
     socket.on('disconnect', () => {
