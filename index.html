@@ -50,7 +50,7 @@
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
-                [W/A/S/D] MOVE | [MOUSE] AIM | [G]/PAD SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!
+                [W/A/S/D] MOVE | [MOUSE] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
@@ -171,11 +171,11 @@ function canBuildHere(pos, isPlayer) {
     return true;
 }
 
-// CrimsonStalker class (Base Man / Guard in the corner)
+// CrimsonStalker class (Base Man / Guard in the corner & Animated Runners)
 class CrimsonStalker {
     constructor(cHex, sHex, isYBase=false, isRedRun=false, isYRun=false) {
         this.group = new THREE.Group(); this.limbs = {}; this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
-        this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0; this.speed = 0.0;
+        this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0;
         this.shatterHex = sHex; this.isYellowBaseMan = isYBase; this.isRedRunner = isRedRun; this.isYellowRunner = isYRun;
         
         this.navState = 'SEEK';
@@ -268,8 +268,22 @@ function tryRecruitPlayerSnail() {
         lastRecruitTime = n; 
     }
 }
-function spawnYellowSnail(pos) { playerSnailsSpawned++; let sn = new CrimsonSnail(0x0077ff, true); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460)]; snails.push(sn); }
-function spawnRedSnail(pos) { aiSnailsSpawned++; let sn = new CrimsonSnail(0xcc2222, false); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, 460)]; snails.push(sn); }
+
+function spawnYellowSnail(pos) { 
+    playerSnailsSpawned++; 
+    let sn = new CrimsonSnail(0x0077ff, true); 
+    sn.group.position.copy(pos); 
+    sn.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460)]; 
+    snails.push(sn); 
+}
+
+function spawnRedSnail(pos) { 
+    aiSnailsSpawned++; 
+    let sn = new CrimsonSnail(0xcc2222, false); 
+    sn.group.position.copy(pos); 
+    sn.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, 460)]; 
+    snails.push(sn); 
+}
 
 function spawnYellowRunner(pos) { 
     let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true); 
@@ -277,6 +291,7 @@ function spawnYellowRunner(pos) {
     r.waypoints = [new THREE.Vector3(490, 0, 490), new THREE.Vector3(-490, 0, 490), new THREE.Vector3(-490, 0, -490)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
+
 function spawnRedRunner(pos) { 
     let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); 
     r.group.position.copy(pos); 
@@ -560,6 +575,7 @@ function animate() {
     
     stalkers.forEach(s => s.update(playerGroup.position));
 
+    // Runners navigation with wall-following gap detection & arm/leg animation
     for (let i = runners.length - 1; i >= 0; i--) {
         let r = runners[i];
         if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
@@ -594,6 +610,41 @@ function animate() {
                 }
             }
         } else { r.update(playerGroup.position); }
+    }
+
+    // SNAILS NAVIGATION & MOVEMENT
+    for (let i = snails.length - 1; i >= 0; i--) {
+        let sn = snails[i]; 
+        if (sn.markedForRemoval) { scene.remove(sn.group); snails.splice(i, 1); continue; }
+        
+        let isEnemySnail = (myTeam === 'blue' ? !sn.isYellowTeam : sn.isYellowTeam);
+        if (playerGroup.position.distanceTo(sn.group.position) < 7.0 && !sn.isShattered && isEnemySnail) {
+            sn.explode(); playerGold += 2; continue;
+        }
+
+        if (!sn.isShattered) {
+            let tar = sn.waypoints[sn.currentWaypointIndex];
+            if (!tar) continue;
+            
+            const snailSize = new THREE.Vector3(3.2, 3, 4.8);
+            let steerDir = executeBugNavigation(sn, sn.group.position, tar, snailSize, sn.moveSpeed);
+            
+            if (steerDir) {
+                sn.group.position.addScaledVector(steerDir, sn.moveSpeed);
+                let lookTarget = sn.group.position.clone().add(steerDir);
+                sn.group.lookAt(lookTarget.x, sn.group.position.y, lookTarget.z);
+            }
+            
+            if (sn.group.position.distanceTo(tar) < 16) {
+                sn.currentWaypointIndex++;
+                sn.navState = 'SEEK'; sn.followSteps = 0;
+                if (sn.currentWaypointIndex >= sn.waypoints.length) {
+                    if (sn.isYellowTeam) aiBaseHP = Math.max(0, aiBaseHP - 15);
+                    else playerBaseHP = Math.max(0, playerBaseHP - 15);
+                    scene.remove(sn.group); snails.splice(i, 1);
+                }
+            }
+        }
     }
 
     if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); playerGroup.rotation.y = yaw;
