@@ -13,14 +13,13 @@ let players = {};
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
 
-    // Assign roles: First player is Blue (Vanguard), second is Red (Architect)
-    let role = Object.keys(players).length === 0 ? 'blue' : 'red';
+    // Assign roles: First player gets blue, second gets red
+    const roleKeys = Object.keys(players);
+    let role = roleKeys.length === 0 ? 'blue' : 'red';
     players[socket.id] = { role: role };
 
     socket.emit('assigned_role', role);
-
-    // Listen for player movement & actions
-    socket.emit('current_players', players);
+    io.emit('current_players', players);
 
     socket.on('player_update', (data) => {
         if (players[socket.id]) {
