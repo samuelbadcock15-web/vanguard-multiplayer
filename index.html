@@ -53,14 +53,13 @@
                 [W/A/S/D] MOVE | [MOUSE] AIM | [G]/PAD SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | RAM FOES TO CRUSH!
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
-            <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
+            <div class="live-metrics">DEPLOYED: <span id="vanguard-snails">0</span> SNAILS</div>
             <div style="font-size:9px; color:#555; margin-top:5px;">TARGET: <span id="z-health">DETECTING...</span></div>
         </div>
         <hr style="border:0; border-top:1px dashed #0088ff; width:100%; margin:0;">
         <div>
             <span style="color:#008833; font-weight:bold;">ENEMY OPPONENT</span>
-            <div class="currency-display" style="color:#008833;">GOLD: <span id="ai-gold">100</span></div>
-            <div class="live-metrics" style="color:#00aa44;">DEPLOYED: <span id="architect-men">0</span> MEN | <span id="architect-snails">0</span> SNAILS</div>
+            <div class="live-metrics" style="color:#00aa44;">ENEMY SNAILS: <span id="enemy-snails">0</span></div>
             <div style="display:flex; flex-direction:column; gap:3px; margin-top:5px;">
                 <div class="hp-bar-ai"><div id="ai-hp-fill"></div><div id="hp-text-ai" class="hp-text">VESSEL: 100%</div></div>
                 <div class="hp-bar-ai"><div id="ai-base-hp-fill"></div><div id="ai-base-hp-text" class="hp-text">BASE: 100%</div></div>
@@ -76,7 +75,7 @@
 <div id="three-canvas"></div>
 <script>
 const socket = io();
-let myTeam = 'blue'; // 'blue' or 'red'
+let myTeam = 'blue';
 
 let scene, camera, renderer, playerGroup, enemyGroup, snakeHead, dirLight, floor, recruitmentPad, enemyPad;
 let userBlocks = [], enemyBlocks = [], wallMeshes = [], bullets = [], turrets = [], enemyTurrets = [], keys = {};
@@ -86,10 +85,11 @@ let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08;
 const maxWallGridHeight = 8 * blockSize;
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
-let playerHP = 100, playerBaseHP = 100, enemyBaseHP = 100, playerGold = 100, enemyGold = 100, enemyHP = 100;
+let playerHP = 100, playerBaseHP = 100, enemyBaseHP = 100, playerGold = 100, enemyHP = 100;
 let gameActive = true;
 let lastRecruitTime = 0; const recruitCooldown = 500;
-let treadRibs = [], stalkers = [], runners = [], snails = [];
+let snails = [];
+let playerSpawnPos = new THREE.Vector3(460, 0, 460);
 
 socket.on('roleAssign', (data) => {
     myTeam = data.team;
@@ -142,8 +142,6 @@ socket.on('unitSpawned', (data) => {
         else spawnRedSnail(new THREE.Vector3(-460, 0, -460));
     }
 });
-
-let playerSpawnPos = new THREE.Vector3(460, 0, 460);
 
 function toggleControls() { const p = document.getElementById('control-panel'); p.style.display = p.style.display === 'none' ? 'block' : 'none'; }
 
@@ -415,12 +413,32 @@ function checkCollision(pos) {
     return false;
 }
 
+function updateOverheadUI() { 
+    if(!playerGroup || !camera || !renderer) return; 
+    const wp = new THREE.Vector3(); 
+    playerGroup.getWorldPosition(wp); 
+    wp.y += 1.8; 
+    wp.project(camera); 
+    document.getElementById('overhead-ui').style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
+    document.getElementById('overhead-ui').style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
+}
+
+function updateCounters() {
+    const mySnails = snails.filter(sn => (myTeam === 'blue' ? sn.isYellowTeam : !sn.isYellowTeam) && !sn.isShattered).length;
+    const enemySnails = snails.filter(sn => (myTeam === 'blue' ? !sn.isYellowTeam : sn.isYellowTeam) && !sn.isShattered).length;
+    document.getElementById('vanguard-snails').innerText = mySnails;
+    document.getElementById('enemy-snails').innerText = enemySnails;
+}
+
 function animate() {
     requestAnimationFrame(animate); if (!renderer || !scene || !camera) return;
     
     document.getElementById('hp-fill').style.width = playerHP + '%'; document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
     document.getElementById('base-hp-fill').style.width = playerBaseHP + '%'; document.getElementById('base-hp-text').innerText = 'BASE: ' + Math.round(playerBaseHP) + '%';
     document.getElementById('player-gold').innerText = playerGold;
+    
+    updateOverheadUI();
+    updateCounters();
     
     if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); playerGroup.rotation.y = yaw;
     let move = new THREE.Vector3(); if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1; if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
@@ -433,18 +451,52 @@ function animate() {
     }
     if (isFiring && fireTimer++ % 7 === 0) fireWeapon();
     
-    // Broadcast player transform
     if (isMoving || Math.abs(mouse.x) > 0.3) {
         socket.emit('playerMove', { x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z, yaw: yaw });
     }
 
-    // Ram enemy snails
     for (let i = snails.length - 1; i >= 0; i--) {
         let sn = snails[i];
+        if (sn.markedForRemoval) {
+            scene.remove(sn.group);
+            snails.splice(i, 1);
+            continue;
+        }
         const isEnemySnail = myTeam === 'blue' ? !sn.isYellowTeam : sn.isYellowTeam;
         if (playerGroup.position.distanceTo(sn.group.position) < 7.0 && !sn.isShattered && isEnemySnail) {
             sn.explode();
             playerGold += 2;
+            continue;
+        }
+        if (!sn.isShattered) {
+            let tar = sn.waypoints[sn.currentWaypointIndex];
+            let dir = new THREE.Vector3().subVectors(tar, sn.group.position);
+            dir.y = 0;
+            if (dir.length() > 0.1) {
+                dir.normalize();
+                sn.group.position.addScaledVector(dir, sn.moveSpeed);
+                let lookTarget = sn.group.position.clone().sub(dir);
+                sn.group.lookAt(lookTarget.x, sn.group.position.y, lookTarget.z);
+            }
+            if (sn.group.position.distanceTo(tar) < 16) {
+                sn.currentWaypointIndex++;
+                if (sn.currentWaypointIndex >= sn.waypoints.length) {
+                    if (sn.isYellowTeam && myTeam === 'red') playerBaseHP = Math.max(0, playerBaseHP - 15);
+                    if (!sn.isYellowTeam && myTeam === 'blue') playerBaseHP = Math.max(0, playerBaseHP - 15);
+                    scene.remove(sn.group);
+                    snails.splice(i, 1);
+                }
+            }
+        }
+    }
+
+    for(let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.position.add(b.userData.velocity);
+        b.userData.life--;
+        if (b.userData.life <= 0) {
+            scene.remove(b);
+            bullets.splice(i, 1);
         }
     }
     
