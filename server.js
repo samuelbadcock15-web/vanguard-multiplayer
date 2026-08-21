@@ -18,16 +18,16 @@ io.on('connection', (socket) => {
     // Assign roles dynamically
     if (!bluePlayer) {
         bluePlayer = socket.id;
-        players[socket.id] = { team: 'blue' };
+        players[socket.id] = { team: 'blue', hp: 100 };
         socket.emit('roleAssign', { team: 'blue' });
         console.log(`Blue Commander connected: ${socket.id}`);
     } else if (!redPlayer) {
         redPlayer = socket.id;
-        players[socket.id] = { team: 'red' };
+        players[socket.id] = { team: 'red', hp: 100 };
         socket.emit('roleAssign', { team: 'red' });
         console.log(`Red Commander connected: ${socket.id}`);
     } else {
-        players[socket.id] = { team: 'spectator' };
+        players[socket.id] = { team: 'spectator', hp: 100 };
         socket.emit('roleAssign', { team: 'spectator' });
         console.log(`Spectator connected: ${socket.id}`);
     }
@@ -48,10 +48,12 @@ io.on('connection', (socket) => {
         io.emit('unitSpawned', data);
     });
 
+    // Handle incoming hits and broadcast damage to the opponent
     socket.on('shipHit', (data) => {
         socket.broadcast.emit('shipHit', data);
     });
 
+    // Handle respawn coordination
     socket.on('playerRespawn', (data) => {
         socket.broadcast.emit('playerRespawn', data);
     });
@@ -66,20 +68,17 @@ io.on('connection', (socket) => {
         }
         delete players[socket.id];
         
-        // Promote a spectator if a slot opened up
         for (let id in players) {
             if (players[id].team === 'spectator') {
                 if (!bluePlayer) {
                     bluePlayer = id;
                     players[id].team = 'blue';
                     io.to(id).emit('roleAssign', { team: 'blue' });
-                    console.log(`Promoted spectator ${id} to Blue Commander.`);
                     break;
                 } else if (!redPlayer) {
                     redPlayer = id;
                     players[id].team = 'red';
                     io.to(id).emit('roleAssign', { team: 'red' });
-                    console.log(`Promoted spectator ${id} to Red Commander.`);
                     break;
                 }
             }
