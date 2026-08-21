@@ -58,7 +58,8 @@
         </div>
         <hr style="border:0; border-top:1px dashed #0088ff; width:100%; margin:0;">
         <div>
-            <span style="color:#008833; font-weight:bold;">ENEMY OPPONENT</span>
+            <span style="color:#008833; font-weight:bold;" id="enemy-label">OPPONENT</span>
+            <div class="currency-display" style="color:#008833;">GOLD: <span id="enemy-gold">100</span></div>
             <div class="live-metrics" style="color:#00aa44;">ENEMY SNAILS: <span id="enemy-snails">0</span></div>
             <div style="display:flex; flex-direction:column; gap:3px; margin-top:5px;">
                 <div class="hp-bar-ai"><div id="ai-hp-fill"></div><div id="hp-text-ai" class="hp-text">VESSEL: 100%</div></div>
@@ -85,10 +86,10 @@ let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08;
 const maxWallGridHeight = 8 * blockSize;
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
-let playerHP = 100, playerBaseHP = 100, enemyBaseHP = 100, playerGold = 100, enemyHP = 100;
+let playerHP = 100, playerBaseHP = 100, enemyBaseHP = 100, playerGold = 100, enemyGold = 100, enemyHP = 100;
 let gameActive = true;
 let lastRecruitTime = 0; const recruitCooldown = 500;
-let snails = [];
+let snails = [], treadRibs = [], sirenGeo;
 let playerSpawnPos = new THREE.Vector3(460, 0, 460);
 
 socket.on('roleAssign', (data) => {
@@ -224,12 +225,15 @@ class CrimsonSnail {
     constructor(cHex, isYTeam=false) {
         this.group = new THREE.Group(); this.health = 120; this.isShattered = false; this.isYellowTeam = isYTeam;
         this.moveSpeed = 0.5; this.currentWaypointIndex = 0; this.waypoints = [];
-        this.navState = 'SEEK'; this.wallFollowDir = Math.random() > 0.5 ? 1 : -1; this.followSteps = 0;
-        this.startFollowPos = new THREE.Vector3(); this.currentHeading = new THREE.Vector3(0, 0, 1);
         
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
         const sh = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 2.0, 8), mat); sh.rotation.z = Math.PI / 2; sh.position.y = 2; this.group.add(sh);
         const b = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 4.5), mat); b.position.y = 0.5; this.group.add(b);
+        [-0.5, 0.5].forEach(o => {
+            const s = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.5), mat); s.position.set(o, 1.5, -1.8);
+            const eb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), new THREE.MeshBasicMaterial({ color: 0x111111 })); eb.position.y = 0.75;
+            s.add(eb); this.group.add(s);
+        });
         this.group.userData.entity = this; scene.add(this.group);
     }
     takeDamage(amt, hitPl) {
@@ -268,13 +272,15 @@ function createShip(col) {
     const g = new THREE.Group(), m = new THREE.MeshStandardMaterial({ color: 0x1d2228, roughness: 1.0, metalness: 0.0 });
     g.add(new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.2, 5), m));
     const c = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.8, 2.5), new THREE.MeshStandardMaterial({ color: col, roughness: 1.0, metalness: 0.0 })); c.position.set(0, 1.8, -0.8); g.add(c);
+    const sL = new THREE.Mesh(sirenGeo, new THREE.MeshStandardMaterial({ color: 0x333333 })), sR = sL.clone(); sL.position.set(-0.55, 2.2, -0.8); sR.position.set(0.55, 2.2, -0.8); g.add(sL, sR);
+    const lt = new THREE.PointLight(col, 0, 40); lt.position.set(0, 3, -0.8); g.add(lt);
     const turs = [];
     [[-1.8, 1.2], [1.8, 1.2]].forEach(p => {
         const b = new THREE.Group(); b.position.set(p[0], p[1], -1.5);
         const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 2.5), new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 1.0, metalness: 0.0 })); bar.rotation.x = Math.PI/2; bar.position.z = -1;
         const bg = new THREE.Group(); bg.add(bar); b.add(bg); g.add(b); turs.push({ base: b, barrel: bg });
     });
-    return { group: g, turrets: turs };
+    return { group: g, sL, sR, light: lt, turrets: turs };
 }
 
 function calculatePlacementTarget(hit) {
@@ -316,7 +322,7 @@ function fireWeapon() {
     turrets.forEach(t => {
         const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0x0066ff : 0xff3333 })), wp = new THREE.Vector3();
         t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); raycaster.setFromCamera(mouse, camera);
-        const pool = [scene, floor, recruitmentPad, ...userBlocks, ...enemyBlocks, enemyGroup];
+        const pool = [scene, floor, recruitmentPad, enemyPad, ...userBlocks, ...enemyBlocks, enemyGroup];
         snails.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         const hits = raycaster.intersectObjects(pool, true); if (hits.length > 0) { hits.sort((a, b) => a.distance - b.distance); tar.copy(hits[0].point); } else { raycaster.ray.at(200, tar); }
         b.lookAt(tar); 
@@ -328,9 +334,7 @@ function fireWeapon() {
 
 function initGameWorld() {
     if (scene) {
-        while(scene.children.length > 0){ 
-            scene.remove(scene.children[0]); 
-        }
+        while(scene.children.length > 0){ scene.remove(scene.children[0]); }
     }
     
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0xb0bec5, 0.85); hemiLight.position.set(0, 200, 0); scene.add(hemiLight);
@@ -361,6 +365,7 @@ function initGameWorld() {
     enemyPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 1.0, metalness: 0.0 })); 
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
 
+    sirenGeo = new THREE.BoxGeometry(0.7, 0.25, 0.5);
     let myColor = myTeam === 'blue' ? 0x0088ff : 0xcc2222;
     let pData = createShip(myColor);
     playerGroup = pData.group; turrets = pData.turrets;
@@ -385,6 +390,9 @@ function init() {
     camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1200);
     renderer = new THREE.WebGLRenderer({ antialias: true }); 
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    
     document.getElementById('three-canvas').innerHTML = ""; 
     document.getElementById('three-canvas').appendChild(renderer.domElement);
 
@@ -530,11 +538,33 @@ function animate() {
         const b = bullets[i];
         b.position.add(b.userData.velocity);
         b.userData.life--;
+        
+        // Hit check against enemy craft
+        if (b.userData.isPlayerBullet && enemyGroup && b.position.distanceTo(enemyGroup.position) < 4) {
+            enemyHP = Math.max(0, enemyHP - 5);
+            b.userData.life = 0;
+        }
+        if (!b.userData.isPlayerBullet && playerGroup && b.position.distanceTo(playerGroup.position) < 4) {
+            playerHP = Math.max(0, playerHP - 8);
+            b.userData.life = 0;
+        }
+
         if (b.userData.life <= 0) {
             scene.remove(b);
             bullets.splice(i, 1);
         }
     }
+    
+    raycaster.setFromCamera(mouse, camera);
+    let activePad = myTeam === 'blue' ? recruitmentPad : enemyPad;
+    const lPool = [activePad, ...wallMeshes, ...userBlocks, ...enemyBlocks, enemyGroup];
+    snails.forEach(s => { if(!s.isShattered) lPool.push(s.group); });
+    const lHits = raycaster.intersectObjects(lPool, true); let tar = new THREE.Vector3();
+    if (lHits.length > 0) {
+        const h = lHits[0]; tar.copy(h.point); let r = h.object; while(r.parent && r.parent !== scene) r = r.parent;
+        document.getElementById('z-health').innerText = r === enemyGroup ? `HOSTILE CRAFT | ${Math.round(h.distance)}m` : (r === recruitmentPad || r === enemyPad) ? `SNAIL PAD` : `${Math.round(h.distance)}m | LOCKED`;
+    } else { raycaster.ray.at(200, tar); document.getElementById('z-health').innerText = "SCANNING..."; }
+    turrets.forEach(t => t.base.lookAt(tar));
     
     renderer.render(scene, camera);
 }
