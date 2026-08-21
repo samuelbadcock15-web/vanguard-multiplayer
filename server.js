@@ -5,71 +5,60 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    },
-    transports: ['websocket', 'polling'],
-    pingTimeout: 60000,
-    pingInterval: 25000
-});
+const io = new Server(server, { cors: { origin: '*' } });
 
-app.use(express.static(path.join(__dirname)));
+const PORT = process.env.PORT || 3000;
 
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
+app.use(express.static(path.join(__dirname, 'public')));
 
-let waitingPlayers = [];
-const rooms = {};
+let players = {}; // socket.id -> { team: 'blue' | 'red' }
+let bluePlayer = null;
+let redPlayer = null;
 
 io.on('connection', (socket) => {
-    console.log(`--> Player connected: ${socket.id}`);
-
-    // Push player into matchmaking queue
-    waitingPlayers.push(socket);
-    socket.emit('waiting_for_opponent');
-    console.log(`Current queue length: ${waitingPlayers.length}`);
-
-    if (waitingPlayers.length >= 2) {
-        const p1 = waitingPlayers.shift();
-        const p2 = waitingPlayers.shift();
-
-        const roomId = `room_${Math.random().toString(36).substring(2, 9)}`;
-        p1.join(roomId);
-        p2.join(roomId);
-
-        rooms[roomId] = { p1: p1.id, p2: p2.id };
-
-        io.to(p1.id).emit('assigned_role', { roomId, team: 'player' });
-        io.to(p2.id).emit('assigned_role', { roomId, team: 'enemy' });
-
-        console.log(`=== MATCH STARTED === Room: ${roomId} | P1: ${p1.id} vs P2: ${p2.id}`);
+    // Role Assignment: 1st connection = Blue, 2nd connection = Red
+    if (!bluePlayer) {
+        bluePlayer = socket.id;
+        players[socket.id] = { team: 'blue' };
+        socket.emit('roleAssign', { team: 'blue' });
+    } else if (!redPlayer) {
+        redPlayer = socket.id;
+        players[socket.id] = { team: 'red' };
+        socket.emit('roleAssign', { team: 'red' });
+    } else {
+        players[socket.id] = { team: 'spectator' };
+        socket.emit('roleAssign', { team: 'spectator' });
     }
 
-    // Relay actions between players
-    socket.on('spawn_unit', (data) => socket.to(data.roomId).emit('spawn_unit', data));
-    socket.on('buy_structure', (data) => socket.to(data.roomId).emit('buy_structure', data));
-    socket.on('upgrade_structure', (data) => socket.to(data.roomId).emit('upgrade_structure', data));
-    socket.on('toggle_gate', (data) => socket.to(data.roomId).emit('toggle_gate', data));
-    socket.on('player_move', (data) => socket.to(data.roomId).emit('opponent_move', data));
+    // Vehicle Movement Relay
+    socket.on('playerMove', (data) => {
+        socket.broadcast.emit('enemyMove', data);
+    });
 
+    // Shooting Relay
+    socket.on('playerFire', (data) => {
+        socket.broadcast.emit('enemyFire', data);
+    });
+
+    // Block Placement Relay
+    socket.on('placeBlock', (data) => {
+        socket.broadcast.emit('blockPlaced', data);
+    });
+
+    // Unit Spawning Relay
+    socket.on('spawnUnit', (data) => {
+        io.emit('unitSpawned', data);
+    });
+
+    // Disconnection Handling
     socket.on('disconnect', () => {
-        console.log(`<-- Player disconnected: ${socket.id}`);
-        waitingPlayers = waitingPlayers.filter(s => s.id !== socket.id);
-
-        for (const roomId in rooms) {
-            if (rooms[roomId].p1 === socket.id || rooms[roomId].p2 === socket.id) {
-                io.to(roomId).emit('opponent_disconnected');
-                delete rooms[roomId];
-                console.log(`Match ended / Room deleted: ${roomId}`);
-            }
-        }
+        if (socket.id === bluePlayer) bluePlayer = null;
+        if (socket.id === redPlayer) redPlayer = null;
+        delete players[socket.id];
+        io.emit('playerLeft', { id: socket.id });
     });
 });
 
-const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Server is running smoothly on port ${PORT}`);
+    console.log(`Vanguard server listening on port ${PORT}`);
 });
