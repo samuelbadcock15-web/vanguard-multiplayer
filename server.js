@@ -14,10 +14,9 @@ let players = {};
 let bluePlayer = null;
 let redPlayer = null;
 
-// Track both players' health states on the server
 let gameStates = {
-    blue: { hp: 100 },
-    red: { hp: 100 }
+    blue: { hp: 100, baseHp: 100 },
+    red: { hp: 100, baseHp: 100 }
 };
 
 io.on('connection', (socket) => {
@@ -53,13 +52,11 @@ io.on('connection', (socket) => {
         io.emit('unitSpawned', data);
     });
 
-    // Synchronize damage across clients
     socket.on('shipHit', (data) => {
         let targetTeam = data.targetTeam;
         if (gameStates[targetTeam]) {
             gameStates[targetTeam].hp = Math.max(0, gameStates[targetTeam].hp - data.damage);
             
-            // Broadcast the updated health to everyone
             io.emit('shipHealthUpdate', { 
                 team: targetTeam, 
                 hp: gameStates[targetTeam].hp 
@@ -72,10 +69,30 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('playerRespawn', (data) => {
+        socket.broadcast.emit('playerRespawn', data);
+    });
+
     socket.on('disconnect', () => {
         if (socket.id === bluePlayer) bluePlayer = null;
         if (socket.id === redPlayer) redPlayer = null;
         delete players[socket.id];
+        
+        for (let id in players) {
+            if (players[id].team === 'spectator') {
+                if (!bluePlayer) {
+                    bluePlayer = id;
+                    players[id].team = 'blue';
+                    io.to(id).emit('roleAssign', { team: 'blue' });
+                    break;
+                } else if (!redPlayer) {
+                    redPlayer = id;
+                    players[id].team = 'red';
+                    io.to(id).emit('roleAssign', { team: 'red' });
+                    break;
+                }
+            }
+        }
         io.emit('playerLeft', { id: socket.id });
     });
 });
