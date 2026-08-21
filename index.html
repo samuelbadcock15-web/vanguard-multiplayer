@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>VANGUARD_MULTIPLAYER_ARENA</title>
+    <title>VANGUARD_EXT_AI_NAV_DAYLIGHT</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
@@ -22,15 +22,15 @@
         .control-details { margin-top: 5px; color: #444; }
         .live-metrics { font-size: 10px; color: #c86400; font-weight: bold; }
         #overhead-ui { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
-        
+
         .hp-bar, .hp-bar-ai { position: relative; width: 100px; height: 12px; background: #ccc; border: 1px solid #888; border-radius: 2px; overflow: hidden; box-sizing: border-box; }
         .hp-bar-ai { width: 140px; border-color: #009944; background: #c0ebd0; }
         #hp-fill, #base-hp-fill { height: 100%; background: #0077ff; transition: width 0.1s; }
         #base-hp-fill { background: #0044aa; }
         #ai-hp-fill, #ai-base-hp-fill { height: 100%; background: #00aa44; transition: width 0.3s; }
-        
+
         .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 8px; font-weight: bold; text-shadow: 1px 1px 2px #000; text-transform: uppercase; letter-spacing: 0.5px; z-index: 2; box-sizing: border-box; }
-        
+
         #game-over-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(240,245,250,0.95); backdrop-filter: blur(10px); z-index: 10000; display: none; flex-direction: column; align-items: center; justify-content: center; color: #111; text-align: center; border: 6px solid #0088ff; box-sizing: border-box; }
         .restart-btn { background: #0088ff; color: #fff; border: 2px solid #0066cc; padding: 10px 25px; font-size: 14px; font-weight: bold; cursor: pointer; text-transform: uppercase; border-radius: 4px; }
         .restart-btn:hover { background: #0055cc; }
@@ -46,20 +46,21 @@
     <div class="controls">
         <div>
             <div style="display: flex; align-items: center; justify-content: space-between;">
-                <span class="status" id="player-role-label">VANGUARD: CONNECTING...</span>
+                <span class="status" id="ui-role-title">VANGUARD: ACTIVE</span>
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
                 [W/A/S/D] MOVE | [MOUSE] AIM | [G]/PAD SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | RAM FOES TO CRUSH!
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
-            <div class="live-metrics">DEPLOYED: <span id="vanguard-snails">0</span> SNAILS</div>
+            <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
             <div style="font-size:9px; color:#555; margin-top:5px;">TARGET: <span id="z-health">DETECTING...</span></div>
         </div>
         <hr style="border:0; border-top:1px dashed #0088ff; width:100%; margin:0;">
         <div>
-            <span style="color:#008833; font-weight:bold;">ENEMY OPPONENT</span>
-            <div class="live-metrics" style="color:#00aa44;">ENEMY SNAILS: <span id="enemy-snails">0</span></div>
+            <span style="color:#008833; font-weight:bold;">OPPONENT: <span id="ai-status">CONNECTED</span></span>
+            <div class="currency-display" style="color:#008833;">GOLD: <span id="ai-gold">100</span></div>
+            <div class="live-metrics" style="color:#00aa44;">DEPLOYED: <span id="architect-men">0</span> MEN | <span id="architect-snails">0</span> SNAILS</div>
             <div style="display:flex; flex-direction:column; gap:3px; margin-top:5px;">
                 <div class="hp-bar-ai"><div id="ai-hp-fill"></div><div id="hp-text-ai" class="hp-text">VESSEL: 100%</div></div>
                 <div class="hp-bar-ai"><div id="ai-base-hp-fill"></div><div id="ai-base-hp-text" class="hp-text">BASE: 100%</div></div>
@@ -70,78 +71,51 @@
 <div id="game-over-screen">
     <h2 id="game-over-title">SIMULATION CONCLUDED</h2>
     <p id="game-over-reason">TERMINATION REASON</p>
+    <div style="background:rgba(255,255,255,0.9); border:1px solid #ccc; padding:15px; margin-bottom:20px; text-align:left; font-size:13px; line-height:1.6; border-radius:4px;">
+        <div>&gt; RED KILLED: <span id="stat-red-killed">0</span></div>
+        <div>&gt; YELLOW KILLED: <span id="stat-yellow-killed">0</span></div>
+        <div>&gt; MY SNAILS: <span id="stat-player-snails">0</span></div>
+        <div>&gt; AI SNAILS: <span id="stat-ai-snails">0</span></div>
+    </div>
     <button class="restart-btn" onclick="restartGame()">Restart</button>
 </div>
 <div id="three-canvas"></div>
 <script>
 const socket = io();
-let myTeam = 'blue';
+let myRole = 'vanguard';
+let remotePlayers = {};
 
-let scene, camera, renderer, playerGroup, enemyGroup, snakeHead, dirLight, floor, recruitmentPad, enemyPad;
-let userBlocks = [], enemyBlocks = [], wallMeshes = [], bullets = [], turrets = [], enemyTurrets = [], keys = {};
+socket.on('assigned_role', (role) => {
+    myRole = role;
+    const titleEl = document.getElementById('ui-role-title');
+    if (myRole === 'architect') {
+        playerSpawnPos.set(-490, 0, -490);
+        yaw = 0;
+        if (playerGroup) playerGroup.position.copy(playerSpawnPos);
+        titleEl.innerText = "ARCHITECT: ACTIVE";
+        titleEl.style.color = "#cc2222";
+    } else {
+        playerSpawnPos.set(460, 0, 460);
+        yaw = 0.785;
+        if (playerGroup) playerGroup.position.copy(playerSpawnPos);
+        titleEl.innerText = "VANGUARD: ACTIVE";
+        titleEl.style.color = "#0055ff";
+    }
+});
+
+let scene, camera, renderer, playerGroup, snakeHead, dirLight, floor, recruitmentPad;
+let userBlocks = [], aiBlocks = [], wallMeshes = [], bullets = [], turrets = [], keys = {};
 let isDragging = false, isFiring = false, fireTimer = 0;
 let startPoint = new THREE.Vector3(), dragStartMouse = new THREE.Vector2();
 let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08;
 const maxWallGridHeight = 8 * blockSize;
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
-let playerHP = 100, playerBaseHP = 100, enemyBaseHP = 100, playerGold = 100, enemyHP = 100;
-let gameActive = true;
+let playerHP = 100, playerBaseHP = 100, aiBaseHP = 100, playerGold = 100, aiGold = 100;
+let gameActive = true, redRunnersKilled = 0, yellowRunnersKilled = 0, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
-let snails = [];
 let playerSpawnPos = new THREE.Vector3(460, 0, 460);
-
-socket.on('roleAssign', (data) => {
-    myTeam = data.team;
-    document.getElementById('player-role-label').innerText = `${myTeam.toUpperCase()} COMMANDER: ONLINE`;
-    if (myTeam === 'red') {
-        playerSpawnPos.set(-460, 0, -460);
-        yaw = -2.356;
-    } else {
-        playerSpawnPos.set(460, 0, 460);
-        yaw = 0.785;
-    }
-    if (playerGroup) {
-        playerGroup.position.copy(playerSpawnPos);
-        playerGroup.rotation.y = yaw;
-    }
-});
-
-socket.on('enemyMove', (data) => {
-    if (enemyGroup) {
-        enemyGroup.position.set(data.x, data.y, data.z);
-        enemyGroup.rotation.y = data.yaw;
-    }
-});
-
-socket.on('enemyFire', (data) => {
-    const b = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 2.5), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0xee2222 : 0x0088ff }));
-    b.position.set(data.x, data.y, data.z);
-    b.userData.velocity = new THREE.Vector3(data.vx, data.vy, data.vz);
-    b.userData.life = 120;
-    b.userData.isPlayerBullet = false;
-    bullets.push(b);
-    scene.add(b);
-});
-
-socket.on('blockPlaced', (data) => {
-    const pos = new THREE.Vector3(data.x, data.y, data.z);
-    const k = `${Math.round(pos.x)},${Math.round(pos.y)},${Math.round(pos.z)}`;
-    if (!existingCubes.has(k)) {
-        const col = myTeam === 'blue' ? 0xd03333 : 0x0077ff;
-        const cb = createCube(pos, col, 0x000000, col);
-        scene.add(cb);
-        enemyBlocks.push(cb);
-        existingCubes.set(k, cb);
-    }
-});
-
-socket.on('unitSpawned', (data) => {
-    if (data.type === 'snail') {
-        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(460, 0, 460));
-        else spawnRedSnail(new THREE.Vector3(-460, 0, -460));
-    }
-});
+let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
 
 function toggleControls() { const p = document.getElementById('control-panel'); p.style.display = p.style.display === 'none' ? 'block' : 'none'; }
 
@@ -155,15 +129,17 @@ function canBuildHere(pos, isPlayer) {
     if (isInProtectedBase(pos.x, pos.z)) return false;
     const diagSum = pos.x + pos.z;
     if (Math.abs(diagSum) < 8) return false;
-    if (isPlayer && myTeam === 'blue' && diagSum <= 0) return false;
-    if (isPlayer && myTeam === 'red' && diagSum >= 0) return false;
+    if (isPlayer && diagSum <= 0) return false;
+    if (!isPlayer && diagSum >= 0) return false;
     return true;
 }
 
 function createAlignedWallTexture(theme, isZWall) {
     const canvas = document.createElement('canvas');
-    canvas.width = 1000; canvas.height = 100;
+    canvas.width = 1000;
+    canvas.height = 100;
     const ctx = canvas.getContext('2d');
+
     const isBlue = theme === 'blue';
     const tileBg = isBlue ? '#0a1a36' : '#33080e';
     const baseTileBg = isBlue ? '#030814' : '#140205';
@@ -175,7 +151,8 @@ function createAlignedWallTexture(theme, isZWall) {
 
     for (let u = 2; u < 1000; u += blockSize) {
         let posCoord = u - 500;
-        let isBaseWall = isBlue ? (isZWall ? (posCoord >= 400) : (posCoord <= -400)) : (isZWall ? (posCoord <= -400) : (posCoord >= 400));
+        let isBaseWall = isZWall ? (posCoord >= 400) : (posCoord <= -400);
+
         for (let y = 0; y < maxWallGridHeight; y += blockSize) {
             let v = 100 - y - blockSize;
             ctx.fillStyle = isBaseWall ? baseTileBg : tileBg;
@@ -185,74 +162,122 @@ function createAlignedWallTexture(theme, isZWall) {
             ctx.strokeRect(u, v, blockSize, blockSize);
         }
     }
+
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.ClampToEdgeWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.anisotropy = renderer ? renderer.capabilities.getMaxAnisotropy() : 16;
     return tex;
 }
 
 function createAlignedFloorTexture() {
     const canvas = document.createElement('canvas');
-    canvas.width = 1000; canvas.height = 1000;
+    canvas.width = 1000;
+    canvas.height = 1000;
     const ctx = canvas.getContext('2d');
-    const blueTileBg = '#0a1a36', blueBaseTileBg = '#030814', blueLineCol = '#000814';
-    const redTileBg = '#33080e', redBaseTileBg = '#140205', redLineCol = '#140003';
+
+    const blueTileBg = '#0a1a36';
+    const blueBaseTileBg = '#030814';
+    const blueLineCol = '#000814';
+    const redTileBg = '#33080e';
+    const redBaseTileBg = '#140205';
+    const redLineCol = '#140003';
 
     ctx.fillStyle = redLineCol;
     ctx.fillRect(0, 0, 1000, 1000);
 
     for (let x = 2; x < 1000; x += blockSize) {
         for (let z = 2; z < 1000; z += blockSize) {
-            let worldX = x - 500, worldZ = z - 500;
+            let worldX = x - 500;
+            let worldZ = z - 500;
             const isBlue = (x + z) >= 1000;
             const baseZone = isInProtectedBase(worldX, worldZ);
-            ctx.fillStyle = baseZone === 'blue' ? blueBaseTileBg : baseZone === 'red' ? redBaseTileBg : isBlue ? blueTileBg : redTileBg;
+
+            if (baseZone === 'blue') ctx.fillStyle = blueBaseTileBg;
+            else if (baseZone === 'red') ctx.fillStyle = redBaseTileBg;
+            else ctx.fillStyle = isBlue ? blueTileBg : redTileBg;
+
             ctx.fillRect(x, z, blockSize, blockSize);
             ctx.strokeStyle = isBlue ? blueLineCol : redLineCol;
             ctx.lineWidth = 1;
             ctx.strokeRect(x, z, blockSize, blockSize);
         }
     }
-    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(1000, 0); ctx.lineTo(0, 1000); ctx.stroke();
+
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#00bbff';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.moveTo(1000, 0);
+    ctx.lineTo(0, 1000);
+    ctx.stroke();
+
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.ClampToEdgeWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.anisotropy = renderer ? renderer.capabilities.getMaxAnisotropy() : 16;
     return tex;
+}
+
+class CrimsonStalker {
+    constructor(cHex, sHex, isYBase=false, isRedRun=false, isYRun=false) {
+        this.group = new THREE.Group(); this.limbs = {}; this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
+        this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0;
+        this.shatterHex = sHex; this.isYellowBaseMan = isYBase; this.isRedRunner = isRedRun; this.isYellowRunner = isYRun;
+        this.navState = 'SEEK'; this.wallFollowDir = Math.random() > 0.5 ? 1 : -1;
+        this.followSteps = 0; this.startFollowPos = new THREE.Vector3(); this.currentHeading = new THREE.Vector3(0, 0, 1);
+
+        const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
+        const createPart = (n, w, h, d, y, p) => {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.y = y; m.userData.partName = n; m.castShadow = true; p.add(m); this.limbs[n] = m; return m;
+        };
+        const t = createPart('torso', 2, 3, 1, 4, this.group); createPart('head', 1.2, 1.2, 1.2, 2.2, t);
+        createPart('lArm', 0.6, 2.5, 0.6, 0.2, t).position.x = -1.5; createPart('rArm', 0.6, 2.5, 0.6, 0.2, t).position.x = 1.5;
+        createPart('lLeg', 0.8, 3, 0.8, -3, t).position.x = -0.6; createPart('rLeg', 0.8, 3, 0.8, -3, t).position.x = 0.6;
+        scene.add(this.group);
+    }
+    explode() {
+        if (this.isShattered) return; this.isShattered = true; this.group.visible = false;
+        if (this.isRedRunner) redRunnersKilled++; if (this.isYellowRunner) yellowRunnersKilled++;
+        for (let i = 0; i < 40; i++) {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshStandardMaterial({ color: this.shatterHex, roughness: 1.0, metalness: 0.0 }));
+            p.position.copy(this.group.position).y += 2; p.userData.velocity = new THREE.Vector3((Math.random()-0.5)*4, Math.random()*4, (Math.random()-0.5)*4);
+            scene.add(p); this.shatterParticles.push(p);
+        }
+    }
+    update(tPos) {
+        if (this.isShattered) {
+            this.shatterTimer++;
+            this.shatterParticles.forEach(p => {
+                if (this.shatterTimer < 30) { p.position.add(p.userData.velocity); p.userData.velocity.y -= 0.15; } 
+                else { p.position.lerp(this.group.position, 0.1); p.scale.multiplyScalar(0.9); }
+            });
+            if (this.shatterTimer > 60) {
+                this.shatterParticles.forEach(p => scene.remove(p)); this.shatterParticles = [];
+                if (this.isYellowRunner || this.isRedRunner) this.markedForRemoval = true;
+            } return;
+        } this.group.lookAt(tPos.x, this.group.position.y, tPos.z);
+    }
 }
 
 class CrimsonSnail {
     constructor(cHex, isYTeam=false) {
         this.group = new THREE.Group(); this.health = 120; this.isShattered = false; this.isYellowTeam = isYTeam;
         this.moveSpeed = 0.5; this.currentWaypointIndex = 0; this.waypoints = [];
-        this.navState = 'SEEK'; this.wallFollowDir = Math.random() > 0.5 ? 1 : -1; this.followSteps = 0;
-        this.startFollowPos = new THREE.Vector3(); this.currentHeading = new THREE.Vector3(0, 0, 1);
-        
+        this.navState = 'SEEK'; this.wallFollowDir = Math.random() > 0.5 ? 1 : -1;
+        this.followSteps = 0; this.startFollowPos = new THREE.Vector3(); this.currentHeading = new THREE.Vector3(0, 0, 1);
+
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
         const sh = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 2.0, 8), mat); sh.rotation.z = Math.PI / 2; sh.position.y = 2; this.group.add(sh);
         const b = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 4.5), mat); b.position.y = 0.5; this.group.add(b);
         this.group.userData.entity = this; scene.add(this.group);
-    }
-    takeDamage(amt, hitPl) {
-        if (this.isShattered) return; this.health -= amt;
-        if (this.health <= 0) { if (hitPl) playerGold += 2; this.explode(); }
     }
     explode() {
         if (this.isShattered) return;
         this.isShattered = true; this.group.visible = false; this.markedForRemoval = true;
     }
 }
-
-function tryRecruitPlayerSnail() {
-    if (!gameActive) return; let n = Date.now(); if (n - lastRecruitTime < recruitCooldown) return;
-    if (playerGold >= 2) { 
-        playerGold -= 2; 
-        socket.emit('spawnUnit', { type: 'snail', team: myTeam });
-        lastRecruitTime = n; 
-    }
-}
-function spawnYellowSnail(pos) { let sn = new CrimsonSnail(0x0077ff, true); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460)]; snails.push(sn); }
-function spawnRedSnail(pos) { let sn = new CrimsonSnail(0xcc2222, false); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, 460)]; snails.push(sn); }
 
 function createCube(pos, col, emCol, outCol = 0x334455) {
     const g = new THREE.Group(), geo = new THREE.BoxGeometry(blockSize-0.08, blockSize-0.08, blockSize-0.08);
@@ -261,8 +286,9 @@ function createCube(pos, col, emCol, outCol = 0x334455) {
     g.add(m, out); g.position.copy(pos); return g;
 }
 function createOutlinedCube(pos) {
-    const g = new THREE.Group(); const geo = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
-    g.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: myTeam === 'blue' ? 0x0066cc : 0xcc2222, roughness: 1.0, metalness: 0.0 })));
+    const g = new THREE.Group(); 
+    const geo = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
+    g.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x0066cc, roughness: 1.0, metalness: 0.0 })));
     g.position.copy(pos); return g;
 }
 function createShip(col) {
@@ -289,9 +315,6 @@ function calculatePlacementTarget(hit) {
         let snappedY = Math.round((pt.y - blockSize / 2) / blockSize) * blockSize + blockSize / 2;
         if (snappedY > maxWallGridHeight) return null;
         tPos.set(Math.round(pt.x / blockSize) * blockSize, Math.max(blockSize / 2, snappedY), Math.round(pt.z / blockSize) * blockSize);
-    } else {
-        let r = hit.object; while(r.parent && r.parent !== scene) r = r.parent;
-        tPos.copy(r.position).add(hit.face.normal.clone().multiplyScalar(blockSize));
     }
     return tPos;
 }
@@ -301,29 +324,25 @@ function handlePlacement() {
     const hits = raycaster.intersectObjects([floor, ...wallMeshes, ...userBlocks], true);
     if (hits.length > 0) {
         const h = hits[0];
-        if (wallMeshes.includes(h.object) && h.object.userData.wallTheme !== myTeam) return;
         let tPos = calculatePlacementTarget(h);
-        if (!tPos || !canBuildHere(tPos, true)) return;
+        if (!tPos || !canBuildHere(tPos, myRole === 'vanguard')) return;
         const k = `${Math.round(tPos.x)},${Math.round(tPos.y)},${Math.round(tPos.z)}`;
         if (!existingCubes.has(k)) { 
-            const col = myTeam === 'blue' ? 0x0077ff : 0xd03333;
-            const b = createCube(tPos, col, 0x000000, col); 
+            const col = myRole === 'vanguard' ? 0x0077ff : 0xd03333;
+            const b = createCube(tPos, col, 0x000000, 0x0033aa); 
             scene.add(b); userBlocks.push(b); existingCubes.set(k, b); 
-            socket.emit('placeBlock', { x: tPos.x, y: tPos.y, z: tPos.z });
         }
     }
 }
+
 function fireWeapon() {
     turrets.forEach(t => {
-        const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0x0066ff : 0xff3333 })), wp = new THREE.Vector3();
+        const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myRole === 'vanguard' ? 0x0066ff : 0xee2222 })), wp = new THREE.Vector3();
         t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); raycaster.setFromCamera(mouse, camera);
-        const pool = [scene, floor, recruitmentPad, ...userBlocks, ...enemyBlocks, enemyGroup];
-        snails.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
-        const hits = raycaster.intersectObjects(pool, true); if (hits.length > 0) { hits.sort((a, b) => a.distance - b.distance); tar.copy(hits[0].point); } else { raycaster.ray.at(200, tar); }
-        b.lookAt(tar); 
-        let vel = tar.sub(wp).normalize().multiplyScalar(6);
-        b.userData.velocity = vel; b.userData.life = 120; b.userData.isPlayerBullet = true; scene.add(b); bullets.push(b);
-        socket.emit('playerFire', { x: wp.x, y: wp.y, z: wp.z, vx: vel.x, vy: vel.y, vz: vel.z });
+        const hits = raycaster.intersectObjects([scene, floor, ...userBlocks, ...aiBlocks], true); 
+        if (hits.length > 0) { tar.copy(hits[0].point); } else { raycaster.ray.at(200, tar); }
+        b.lookAt(tar); b.userData.velocity = tar.sub(wp).normalize().multiplyScalar(6); b.userData.life = 120;
+        scene.add(b); bullets.push(b);
     });
 }
 
@@ -335,48 +354,82 @@ function init() {
     camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1200);
     renderer = new THREE.WebGLRenderer({ antialias: true }); 
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+
     document.getElementById('three-canvas').innerHTML = ""; 
     document.getElementById('three-canvas').appendChild(renderer.domElement);
 
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xb0bec5, 0.85); hemiLight.position.set(0, 200, 0); scene.add(hemiLight);
-    dirLight = new THREE.DirectionalLight(0xffffff, 1.2); dirLight.position.set(200, 300, 150); scene.add(dirLight);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xb0bec5, 0.85);
+    hemiLight.position.set(0, 200, 0);
+    scene.add(hemiLight);
+
+    dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(200, 300, 150);
+    scene.add(dirLight);
 
     const floorTexture = createAlignedFloorTexture();
-    floor = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 1.0, metalness: 0.0 })); 
-    floor.rotation.x = -Math.PI / 2; scene.add(floor);
+    floor = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 1.0 })); 
+    floor.rotation.x = -Math.PI / 2;
+    scene.add(floor);
 
-    const redWallZTex = createAlignedWallTexture('red', true); const redWallXTex = createAlignedWallTexture('red', false);
-    const blueWallZTex = createAlignedWallTexture('blue', true); const blueWallXTex = createAlignedWallTexture('blue', false);
+    const redWallZTex = createAlignedWallTexture('red', true);
+    const redWallXTex = createAlignedWallTexture('red', false);
+    const blueWallZTex = createAlignedWallTexture('blue', true);
+    const blueWallXTex = createAlignedWallTexture('blue', false);
 
-    const redWallZMat = new THREE.MeshBasicMaterial({ map: redWallZTex, side: THREE.DoubleSide });
-    const redWallXMat = new THREE.MeshBasicMaterial({ map: redWallXTex, side: THREE.DoubleSide });
-    const blueWallZMat = new THREE.MeshBasicMaterial({ map: blueWallZTex, side: THREE.DoubleSide });
-    const blueWallXMat = new THREE.MeshBasicMaterial({ map: blueWallXTex, side: THREE.DoubleSide });
+    const wallMats = [
+        new THREE.MeshBasicMaterial({ map: redWallZTex, side: THREE.DoubleSide }),
+        new THREE.MeshBasicMaterial({ map: redWallXTex, side: THREE.DoubleSide }),
+        new THREE.MeshBasicMaterial({ map: blueWallZTex, side: THREE.DoubleSide }),
+        new THREE.MeshBasicMaterial({ map: blueWallXTex, side: THREE.DoubleSide })
+    ];
 
-    wallMeshes = []; const lim = 498;
-    [ { z: -lim, r: 0, mat: redWallZMat, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZMat, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
+    const lim = 498;
+    const wallsConfig = [
+        { z: -lim, r: 0, mat: wallMats[0], theme: 'red' },
+        { x: -lim, r: Math.PI / 2, mat: wallMats[1], theme: 'red' },
+        { z: lim, r: Math.PI, mat: wallMats[2], theme: 'blue' },
+        { x: lim, r: -Math.PI / 2, mat: wallMats[3], theme: 'blue' }
+    ];
+
+    wallsConfig.forEach(w => { 
         const wl = new THREE.Mesh(new THREE.PlaneGeometry(1000, 100), w.mat); 
-        if (w.z) wl.position.z = w.z; if (w.x) wl.position.x = w.x; wl.position.y = 50; wl.rotation.y = w.r; wl.userData.wallTheme = w.theme;
+        if (w.z) wl.position.z = w.z; if (w.x) wl.position.x = w.x; 
+        wl.position.y = 50; wl.rotation.y = w.r; wl.userData.wallTheme = w.theme;
         scene.add(wl); wallMeshes.push(wl);
     });
 
-    recruitmentPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0x00aaff, roughness: 1.0, metalness: 0.0 })); 
-    recruitmentPad.position.set(465, 0.2, 465); scene.add(recruitmentPad);
+    recruitmentPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0x00aaff, roughness: 1.0 })); 
+    recruitmentPad.position.set(465, 0.2, 465); 
+    scene.add(recruitmentPad);
 
-    enemyPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 1.0, metalness: 0.0 })); 
-    enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
+    playerGroup = new THREE.Group();
+    const createTr = (s) => {
+        const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.4, 5.2), new THREE.MeshStandardMaterial({ color: 0x3a424e, roughness: 1.0 })));
+        g.position.set(s * 2.1, 0.4, 0.5); return g;
+    };
+    playerGroup.add(createTr(-1), createTr(1));
+    playerGroup.add(new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.2, 5), new THREE.MeshStandardMaterial({ color: 0x1d2228, roughness: 1.0 })));
 
-    let pData = createShip(0x0088ff);
-    playerGroup = pData.group; turrets = pData.turrets;
-    playerGroup.position.copy(playerSpawnPos); scene.add(playerGroup); 
-    playerGroup.add(camera); camera.position.set(0, 7, 15); camera.lookAt(0, 0, -20);
-    
-    let eData = createShip(0xcc2222); 
-    enemyGroup = eData.group; enemyTurrets = eData.turrets; 
-    enemyGroup.position.set(-460, 0, -460); scene.add(enemyGroup);
+    turrets = [];
+    [[-1.8, 1.2], [1.8, 1.2]].forEach(p => {
+        const b = new THREE.Group(); b.position.set(p[0], p[1], -1.5);
+        const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 2.5), new THREE.MeshStandardMaterial({ color: 0x222222 })); bar.rotation.x = Math.PI / 2; bar.position.z = -1;
+        const bg = new THREE.Group(); bg.add(bar); b.add(bg); playerGroup.add(b); turrets.push({ base: b, barrel: bg });
+    });
+
+    yaw = 0.785;
+    playerGroup.rotation.y = yaw;
+    playerGroup.position.copy(playerSpawnPos); 
+    scene.add(playerGroup); 
+    playerGroup.add(camera); 
+    camera.position.set(0, 7, 15); 
+    camera.lookAt(0, 0, -20);
 
     snakeHead = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshBasicMaterial({ color: 0x0088ff })); 
-    snakeHead.visible = false; scene.add(snakeHead);
+    snakeHead.visible = false; 
+    scene.add(snakeHead);
 }
 
 window.addEventListener('mousedown', (e) => {
@@ -385,9 +438,8 @@ window.addEventListener('mousedown', (e) => {
         raycaster.setFromCamera(mouse, camera); 
         const hits = raycaster.intersectObjects([floor, ...wallMeshes, ...userBlocks], true);
         if (hits.length > 0) {
-            const h = hits[0];
-            if (wallMeshes.includes(h.object) && h.object.userData.wallTheme !== myTeam) return;
-            let ptTarget = calculatePlacementTarget(h); if (!ptTarget) return;
+            let ptTarget = calculatePlacementTarget(hits[0]);
+            if (!ptTarget) return;
             isDragging = true; depthOffset = 0; horizOffset = 0; dragStartMouse.set(mouse.x, mouse.y);
             startPoint.copy(ptTarget);
         }
@@ -396,112 +448,54 @@ window.addEventListener('mousedown', (e) => {
 window.addEventListener('mouseup', (e) => { if(e.button === 0) isFiring = false; if(e.button === 2) { isDragging = false; snakeHead.visible = false; }});
 window.addEventListener('mousemove', (e) => { mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1; document.getElementById('cursor-ui').style.left = e.clientX + 'px'; document.getElementById('cursor-ui').style.top = e.clientY + 'px'; });
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
-window.addEventListener('keydown', e => { if (!gameActive) return; keys[e.code] = true; if (e.code === 'KeyG') tryRecruitPlayerSnail(); });
+window.addEventListener('keydown', e => { if (!gameActive) return; keys[e.code] = true; });
 window.addEventListener('keyup', e => keys[e.code] = false);
 window.addEventListener('contextmenu', e => e.preventDefault());
 
-function checkCollision(pos) {
-    if (Math.abs(pos.x) > 496 || Math.abs(pos.z) > 496) return true;
-    const box = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Vector3(2.5, 2, 2.5));
-    for (let b of [...userBlocks, ...enemyBlocks]) { if (box.intersectsBox(new THREE.Box3().setFromObject(b))) return true; }
-    for (let sn of snails) {
-        if (!sn.isShattered && sn.group && ((myTeam === 'blue' && sn.isYellowTeam) || (myTeam === 'red' && !sn.isYellowTeam))) {
-            const snailBox = new THREE.Box3().setFromCenterAndSize(sn.group.position, new THREE.Vector3(3.2, 3, 4.8));
-            if (box.intersectsBox(snailBox)) return true;
+socket.on('state_update', (data) => {
+    for (let id in data.players) {
+        if (id === socket.id) continue;
+        let pData = data.players[id];
+        if (!remotePlayers[id]) {
+            let remoteShip = createShip(pData.role === 'vanguard' ? 0x0088ff : 0xcc2222);
+            scene.add(remoteShip.group);
+            remotePlayers[id] = remoteShip.group;
         }
+        remotePlayers[id].position.set(pData.x, 0.4, pData.z);
+        remotePlayers[id].rotation.y = pData.yaw;
     }
-    return false;
-}
-
-function updateOverheadUI() { 
-    if(!playerGroup || !camera || !renderer) return; 
-    const wp = new THREE.Vector3(); 
-    playerGroup.getWorldPosition(wp); 
-    wp.y += 1.8; 
-    wp.project(camera); 
-    document.getElementById('overhead-ui').style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
-    document.getElementById('overhead-ui').style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
-}
-
-function updateCounters() {
-    const mySnails = snails.filter(sn => (myTeam === 'blue' ? sn.isYellowTeam : !sn.isYellowTeam) && !sn.isShattered).length;
-    const enemySnails = snails.filter(sn => (myTeam === 'blue' ? !sn.isYellowTeam : sn.isYellowTeam) && !sn.isShattered).length;
-    document.getElementById('vanguard-snails').innerText = mySnails;
-    document.getElementById('enemy-snails').innerText = enemySnails;
-}
+});
 
 function animate() {
-    requestAnimationFrame(animate); if (!renderer || !scene || !camera) return;
+    requestAnimationFrame(animate); 
+    if (!renderer || !scene || !camera) return; 
+    if (!gameActive) { renderer.render(scene, camera); return; }
+
+    if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); 
+    if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); 
+    playerGroup.rotation.y = yaw;
+
+    let move = new THREE.Vector3(); 
+    if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1; if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
     
-    document.getElementById('hp-fill').style.width = playerHP + '%'; document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
-    document.getElementById('base-hp-fill').style.width = playerBaseHP + '%'; document.getElementById('base-hp-text').innerText = 'BASE: ' + Math.round(playerBaseHP) + '%';
-    document.getElementById('player-gold').innerText = playerGold;
-    
-    updateOverheadUI();
-    updateCounters();
-    
-    if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); playerGroup.rotation.y = yaw;
-    let move = new THREE.Vector3(); if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1; if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
-    const isMoving = move.length() > 0;
-    if (isMoving) { 
-        move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion); 
-        if(!checkCollision({x: playerGroup.position.x + move.x, y: 1, z: playerGroup.position.z + move.z})) { 
-            playerGroup.position.x += move.x; playerGroup.position.z += move.z; 
-        } 
+    if (move.length() > 0) {
+        move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion);
+        playerGroup.position.add(move);
     }
+
     if (isFiring && fireTimer++ % 7 === 0) fireWeapon();
-    
-    if (isMoving || Math.abs(mouse.x) > 0.3) {
-        socket.emit('playerMove', { x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z, yaw: yaw });
-    }
 
-    for (let i = snails.length - 1; i >= 0; i--) {
-        let sn = snails[i];
-        if (sn.markedForRemoval) {
-            scene.remove(sn.group);
-            snails.splice(i, 1);
-            continue;
-        }
-        const isEnemySnail = myTeam === 'blue' ? !sn.isYellowTeam : sn.isYellowTeam;
-        if (playerGroup.position.distanceTo(sn.group.position) < 7.0 && !sn.isShattered && isEnemySnail) {
-            sn.explode();
-            playerGold += 2;
-            continue;
-        }
-        if (!sn.isShattered) {
-            let tar = sn.waypoints[sn.currentWaypointIndex];
-            let dir = new THREE.Vector3().subVectors(tar, sn.group.position);
-            dir.y = 0;
-            if (dir.length() > 0.1) {
-                dir.normalize();
-                sn.group.position.addScaledVector(dir, sn.moveSpeed);
-                let lookTarget = sn.group.position.clone().sub(dir);
-                sn.group.lookAt(lookTarget.x, sn.group.position.y, lookTarget.z);
-            }
-            if (sn.group.position.distanceTo(tar) < 16) {
-                sn.currentWaypointIndex++;
-                if (sn.currentWaypointIndex >= sn.waypoints.length) {
-                    if (sn.isYellowTeam && myTeam === 'red') playerBaseHP = Math.max(0, playerBaseHP - 15);
-                    if (!sn.isYellowTeam && myTeam === 'blue') playerBaseHP = Math.max(0, playerBaseHP - 15);
-                    scene.remove(sn.group);
-                    snails.splice(i, 1);
-                }
-            }
-        }
-    }
+    // Send local position update to server
+    socket.emit('player_input', {
+        x: playerGroup.position.x,
+        z: playerGroup.position.z,
+        yaw: yaw,
+        hp: playerHP
+    });
 
-    for(let i = bullets.length - 1; i >= 0; i--) {
-        const b = bullets[i];
-        b.position.add(b.userData.velocity);
-        b.userData.life--;
-        if (b.userData.life <= 0) {
-            scene.remove(b);
-            bullets.splice(i, 1);
-        }
-    }
-    
     renderer.render(scene, camera);
 }
+
 init(); animate();
 </script>
 </body>
