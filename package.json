@@ -1,7 +1,7 @@
 {
   "name": "vanguard-multiplayer",
   "version": "1.0.0",
-  "description": "Vanguard vs Architect 2-Player Online Game",
+  "description": "Vanguard vs Architect 2-Player Live Multiplayer",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
