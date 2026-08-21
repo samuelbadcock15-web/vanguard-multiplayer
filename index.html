@@ -53,14 +53,14 @@
                 [W/A/S/D] MOVE | [MOUSE] AIM | [G]/PAD SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | RAM FOES TO CRUSH!
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
-            <div class="live-metrics">DEPLOYED: <span id="vanguard-snails">0</span> SNAILS</div>
+            <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
             <div style="font-size:9px; color:#555; margin-top:5px;">TARGET: <span id="z-health">DETECTING...</span></div>
         </div>
         <hr style="border:0; border-top:1px dashed #0088ff; width:100%; margin:0;">
         <div>
-            <span style="color:#008833; font-weight:bold;" id="enemy-label">OPPONENT</span>
-            <div class="currency-display" style="color:#008833;">GOLD: <span id="enemy-gold">100</span></div>
-            <div class="live-metrics" style="color:#00aa44;">ENEMY SNAILS: <span id="enemy-snails">0</span></div>
+            <span style="color:#008833; font-weight:bold;" id="enemy-label-title">OPPONENT: <span id="ai-status">ACTIVE</span></span>
+            <div class="currency-display" style="color:#008833;">GOLD: <span id="ai-gold">100</span></div>
+            <div class="live-metrics" style="color:#00aa44;">DEPLOYED: <span id="architect-men">0</span> MEN | <span id="architect-snails">0</span> SNAILS</div>
             <div style="display:flex; flex-direction:column; gap:3px; margin-top:5px;">
                 <div class="hp-bar-ai"><div id="ai-hp-fill"></div><div id="hp-text-ai" class="hp-text">VESSEL: 100%</div></div>
                 <div class="hp-bar-ai"><div id="ai-base-hp-fill"></div><div id="ai-base-hp-text" class="hp-text">BASE: 100%</div></div>
@@ -71,6 +71,12 @@
 <div id="game-over-screen">
     <h2 id="game-over-title">SIMULATION CONCLUDED</h2>
     <p id="game-over-reason">TERMINATION REASON</p>
+    <div style="background:rgba(255,255,255,0.9); border:1px solid #ccc; padding:15px; margin-bottom:20px; text-align:left; font-size:13px; line-height:1.6; border-radius:4px;">
+        <div>&gt; RED KILLED: <span id="stat-red-killed">0</span></div>
+        <div>&gt; YELLOW KILLED: <span id="stat-yellow-killed">0</span></div>
+        <div>&gt; MY SNAILS: <span id="stat-player-snails">0</span></div>
+        <div>&gt; AI SNAILS: <span id="stat-ai-snails">0</span></div>
+    </div>
     <button class="restart-btn" onclick="restartGame()">Restart</button>
 </div>
 <div id="three-canvas"></div>
@@ -78,19 +84,20 @@
 const socket = io();
 let myTeam = 'blue';
 
-let scene, camera, renderer, playerGroup, enemyGroup, snakeHead, dirLight, floor, recruitmentPad, enemyPad;
-let userBlocks = [], enemyBlocks = [], wallMeshes = [], bullets = [], turrets = [], enemyTurrets = [], keys = {};
+let scene, camera, renderer, playerGroup, snakeHead, dirLight, floor, recruitmentPad, enemyPad;
+let userBlocks = [], aiBlocks = [], wallMeshes = [], bullets = [], turrets = [], keys = {};
 let isDragging = false, isFiring = false, fireTimer = 0;
 let startPoint = new THREE.Vector3(), dragStartMouse = new THREE.Vector2();
 let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
-const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08;
+const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08, detectionZone = 650;
 const maxWallGridHeight = 8 * blockSize;
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
-let playerHP = 100, playerBaseHP = 100, enemyBaseHP = 100, playerGold = 100, enemyGold = 100, enemyHP = 100;
-let gameActive = true;
+let playerHP = 100, playerBaseHP = 100, aiBaseHP = 100, playerGold = 100, aiGold = 100;
+let gameActive = true, redRunnersKilled = 0, yellowRunnersKilled = 0, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
-let snails = [], treadRibs = [], sirenGeo;
 let playerSpawnPos = new THREE.Vector3(460, 0, 460);
+let aiGroup, aiSirenL, aiSirenR, aiPointLight, aiTurrets = [];
+let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
 
 socket.on('roleAssign', (data) => {
     myTeam = data.team;
@@ -108,9 +115,9 @@ socket.on('roleAssign', (data) => {
 });
 
 socket.on('enemyMove', (data) => {
-    if (enemyGroup) {
-        enemyGroup.position.set(data.x, data.y, data.z);
-        enemyGroup.rotation.y = data.yaw;
+    if (aiGroup) {
+        aiGroup.position.set(data.x, data.y, data.z);
+        aiGroup.rotation.y = data.yaw;
     }
 });
 
@@ -131,7 +138,7 @@ socket.on('blockPlaced', (data) => {
         const col = myTeam === 'blue' ? 0xd03333 : 0x0077ff;
         const cb = createCube(pos, col, 0x000000, col);
         scene.add(cb);
-        enemyBlocks.push(cb);
+        aiBlocks.push(cb);
         existingCubes.set(k, cb);
     }
 });
@@ -140,6 +147,10 @@ socket.on('unitSpawned', (data) => {
     if (data.type === 'snail') {
         if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(460, 0, 460));
         else spawnRedSnail(new THREE.Vector3(-460, 0, -460));
+    }
+    if (data.type === 'runner') {
+        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(460, 0, 460));
+        else spawnRedRunner(new THREE.Vector3(-460, 0, -460));
     }
 });
 
@@ -225,7 +236,6 @@ class CrimsonSnail {
     constructor(cHex, isYTeam=false) {
         this.group = new THREE.Group(); this.health = 120; this.isShattered = false; this.isYellowTeam = isYTeam;
         this.moveSpeed = 0.5; this.currentWaypointIndex = 0; this.waypoints = [];
-        
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
         const sh = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 2.0, 8), mat); sh.rotation.z = Math.PI / 2; sh.position.y = 2; this.group.add(sh);
         const b = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 4.5), mat); b.position.y = 0.5; this.group.add(b);
@@ -254,8 +264,10 @@ function tryRecruitPlayerSnail() {
         lastRecruitTime = n; 
     }
 }
-function spawnYellowSnail(pos) { let sn = new CrimsonSnail(0x0077ff, true); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460)]; snails.push(sn); }
-function spawnRedSnail(pos) { let sn = new CrimsonSnail(0xcc2222, false); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, 460)]; snails.push(sn); }
+function spawnYellowSnail(pos) { playerSnailsSpawned++; let sn = new CrimsonSnail(0x0077ff, true); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460)]; snails.push(sn); }
+function spawnRedSnail(pos) { aiSnailsSpawned++; let sn = new CrimsonSnail(0xcc2222, false); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, 460)]; snails.push(sn); }
+function spawnYellowRunner(pos) { let r = new CrimsonSnail(0x0088ff, true); r.group.position.copy(pos); r.waypoints = [new THREE.Vector3(-490, 0, 490), new THREE.Vector3(-490, 0, -490)]; snails.push(r); }
+function spawnRedRunner(pos) { let r = new CrimsonSnail(0xcc2222, false); r.group.position.copy(pos); r.waypoints = [new THREE.Vector3(490, 0, -490), new THREE.Vector3(490, 0, 490)]; snails.push(r); }
 
 function createCube(pos, col, emCol, outCol = 0x334455) {
     const g = new THREE.Group(), geo = new THREE.BoxGeometry(blockSize-0.08, blockSize-0.08, blockSize-0.08);
@@ -322,7 +334,7 @@ function fireWeapon() {
     turrets.forEach(t => {
         const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0x0066ff : 0xff3333 })), wp = new THREE.Vector3();
         t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); raycaster.setFromCamera(mouse, camera);
-        const pool = [scene, floor, recruitmentPad, enemyPad, ...userBlocks, ...enemyBlocks, enemyGroup];
+        const pool = [scene, floor, recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks, aiGroup];
         snails.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         const hits = raycaster.intersectObjects(pool, true); if (hits.length > 0) { hits.sort((a, b) => a.distance - b.distance); tar.copy(hits[0].point); } else { raycaster.ray.at(200, tar); }
         b.lookAt(tar); 
@@ -374,9 +386,9 @@ function initGameWorld() {
     
     let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
     let eData = createShip(enemyColor); 
-    enemyGroup = eData.group; enemyTurrets = eData.turrets; 
+    aiGroup = eData.group; aiTurrets = eData.turrets; 
     let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
-    enemyGroup.position.copy(enemyPos); scene.add(enemyGroup);
+    aiGroup.position.copy(enemyPos); scene.add(aiGroup);
 
     snakeHead = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshBasicMaterial({ color: 0x0088ff })); 
     snakeHead.visible = false; scene.add(snakeHead);
@@ -423,7 +435,7 @@ window.addEventListener('contextmenu', e => e.preventDefault());
 function checkCollision(pos) {
     if (Math.abs(pos.x) > 496 || Math.abs(pos.z) > 496) return true;
     const box = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Vector3(2.5, 2, 2.5));
-    for (let b of [...userBlocks, ...enemyBlocks]) { if (box.intersectsBox(new THREE.Box3().setFromObject(b))) return true; }
+    for (let b of [...userBlocks, ...aiBlocks]) { if (box.intersectsBox(new THREE.Box3().setFromObject(b))) return true; }
     for (let sn of snails) {
         if (!sn.isShattered && sn.group && ((myTeam === 'blue' && sn.isYellowTeam) || (myTeam === 'red' && !sn.isYellowTeam))) {
             const snailBox = new THREE.Box3().setFromCenterAndSize(sn.group.position, new THREE.Vector3(3.2, 3, 4.8));
@@ -447,7 +459,9 @@ function updateCounters() {
     const mySnails = snails.filter(sn => (myTeam === 'blue' ? sn.isYellowTeam : !sn.isYellowTeam) && !sn.isShattered).length;
     const enemySnails = snails.filter(sn => (myTeam === 'blue' ? !sn.isYellowTeam : sn.isYellowTeam) && !sn.isShattered).length;
     document.getElementById('vanguard-snails').innerText = mySnails;
-    document.getElementById('enemy-snails').innerText = enemySnails;
+    document.getElementById('vanguard-men').innerText = mySnails;
+    document.getElementById('architect-men').innerText = enemySnails;
+    document.getElementById('architect-snails').innerText = enemySnails;
 }
 
 function animate() {
@@ -455,7 +469,7 @@ function animate() {
     
     document.getElementById('hp-fill').style.width = playerHP + '%'; document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
     document.getElementById('base-hp-fill').style.width = playerBaseHP + '%'; document.getElementById('base-hp-text').innerText = 'BASE: ' + Math.round(playerBaseHP) + '%';
-    document.getElementById('player-gold').innerText = playerGold;
+    document.getElementById('player-gold').innerText = playerGran = playerGold;
     
     updateOverheadUI();
     updateCounters();
@@ -520,13 +534,11 @@ function animate() {
                 dir.normalize();
                 sn.group.position.addScaledVector(dir, sn.moveSpeed);
                 let lookTarget = sn.group.position.clone().sub(dir);
-                sn.group.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
+                sn.group.lookAt(lookTarget.x, sn.group.position.y, lookTarget.z);
             }
             if (sn.group.position.distanceTo(tar) < 16) {
                 sn.currentWaypointIndex++;
                 if (sn.currentWaypointIndex >= sn.waypoints.length) {
-                    if (sn.isYellowTeam && myTeam === 'red') playerBaseHP = Math.max(0, playerBaseHP - 15);
-                    if (!sn.isYellowTeam && myTeam === 'blue') playerBaseHP = Math.max(0, playerBaseHP - 15);
                     scene.remove(sn.group);
                     snails.splice(i, 1);
                 }
@@ -539,14 +551,42 @@ function animate() {
         b.position.add(b.userData.velocity);
         b.userData.life--;
         
-        // Hit check against enemy craft
-        if (b.userData.isPlayerBullet && enemyGroup && b.position.distanceTo(enemyGroup.position) < 4) {
-            enemyHP = Math.max(0, enemyHP - 5);
+        if(b.userData.isPlayerBullet && aiGroup && b.position.distanceTo(aiGroup.position) < 4) {
+            aiHP = Math.max(0, (aiHP || 100) - 5);
             b.userData.life = 0;
         }
-        if (!b.userData.isPlayerBullet && playerGroup && b.position.distanceTo(playerGroup.position) < 4) {
+        if(!b.userData.isPlayerBullet && playerGroup && b.position.distanceTo(playerGroup.position) < 4) {
             playerHP = Math.max(0, playerHP - 8);
             b.userData.life = 0;
+        }
+
+        let pool = [];
+        if (b.userData.isPlayerBullet) { 
+            pool = [recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks, aiGroup]; 
+            snails.forEach(s => { if(!s.isShattered) pool.push(s.group); }); 
+        } else { 
+            pool = [recruitmentPad, enemyPad, ...userBlocks]; 
+        }
+
+        const bHit = (new THREE.Raycaster(b.position, b.userData.velocity.clone().normalize(), 0, 6)).intersectObjects(pool, true);
+        if(bHit.length > 0) {
+            let hObj = bHit[0].object, isPad = false, cPad = hObj; 
+            while(cPad && cPad !== scene) { 
+                if(cPad === recruitmentPad || cPad === enemyPad) { isPad = true; break; } 
+                cPad = cPad.parent; 
+            }
+            if (isPad) { 
+                if (b.userData.isPlayerBullet) tryRecruitPlayerSnail(); 
+                b.userData.life = 0; 
+            } else if (hObj !== floor) {
+                let r = hObj; 
+                while(r.parent && r.parent !== scene) r = r.parent; 
+                existingCubes.delete(`${Math.round(r.position.x)},${Math.round(r.position.y)},${Math.round(r.position.z)}`); 
+                scene.remove(r);
+                userBlocks = userBlocks.filter(o => o !== r); 
+                aiBlocks = aiBlocks.filter(o => o !== r); 
+                b.userData.life = 0;
+            }
         }
 
         if (b.userData.life <= 0) {
@@ -557,12 +597,13 @@ function animate() {
     
     raycaster.setFromCamera(mouse, camera);
     let activePad = myTeam === 'blue' ? recruitmentPad : enemyPad;
-    const lPool = [activePad, ...wallMeshes, ...userBlocks, ...enemyBlocks, enemyGroup];
+    const lPool = [activePad, ...wallMeshes, ...userBlocks, ...aiBlocks, aiGroup]; 
     snails.forEach(s => { if(!s.isShattered) lPool.push(s.group); });
-    const lHits = raycaster.intersectObjects(lPool, true); let tar = new THREE.Vector3();
+    const lHits = raycaster.intersectObjects(lPool, true); 
+    let tar = new THREE.Vector3();
     if (lHits.length > 0) {
         const h = lHits[0]; tar.copy(h.point); let r = h.object; while(r.parent && r.parent !== scene) r = r.parent;
-        document.getElementById('z-health').innerText = r === enemyGroup ? `HOSTILE CRAFT | ${Math.round(h.distance)}m` : (r === recruitmentPad || r === enemyPad) ? `SNAIL PAD` : `${Math.round(h.distance)}m | LOCKED`;
+        document.getElementById('z-health').innerText = r === aiGroup ? `HOSTILE CRAFT | ${Math.round(h.distance)}m` : (r === recruitmentPad || r === enemyPad) ? `SNAIL PAD` : `${Math.round(h.distance)}m | LOCKED`;
     } else { raycaster.ray.at(200, tar); document.getElementById('z-health').innerText = "SCANNING..."; }
     turrets.forEach(t => t.base.lookAt(tar));
     
