@@ -8,7 +8,6 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 const PORT = process.env.PORT || 3000;
 
-// Serves index.html directly from the root directory
 app.use(express.static(__dirname));
 
 let players = {};
@@ -16,7 +15,7 @@ let bluePlayer = null;
 let redPlayer = null;
 
 io.on('connection', (socket) => {
-    // 1st player is Blue, 2nd player is Red, others spectate
+    // 1st connection = Blue (Vanguard), 2nd connection = Red (Architect)
     if (!bluePlayer) {
         bluePlayer = socket.id;
         players[socket.id] = { team: 'blue' };
@@ -30,27 +29,22 @@ io.on('connection', (socket) => {
         socket.emit('roleAssign', { team: 'spectator' });
     }
 
-    // Relay tank position and rotation
     socket.on('playerMove', (data) => {
         socket.broadcast.emit('enemyMove', data);
     });
 
-    // Relay weapon fire
     socket.on('playerFire', (data) => {
         socket.broadcast.emit('enemyFire', data);
     });
 
-    // Relay placed cubes
     socket.on('placeBlock', (data) => {
         socket.broadcast.emit('blockPlaced', data);
     });
 
-    // Relay unit spawns
     socket.on('spawnUnit', (data) => {
         io.emit('unitSpawned', data);
     });
 
-    // Handle disconnections and free up player slots
     socket.on('disconnect', () => {
         if (socket.id === bluePlayer) bluePlayer = null;
         if (socket.id === redPlayer) redPlayer = null;
