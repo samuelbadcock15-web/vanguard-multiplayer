@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>VANGUARD_VS_ARCHITECT_MULTIPLIER</title>
+    <title>VANGUARD_VS_ARCHITECT_MULTIPLAYER</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
@@ -43,7 +43,7 @@
     <div class="controls">
         <div>
             <div style="display: flex; align-items: center; justify-content: space-between;">
-                <span class="status" id="role-title">VANGUARD: ACTIVE</span>
+                <span class="status" id="role-title">ROLE: CONNECTING...</span>
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
@@ -79,7 +79,7 @@ let userBlocks = [], aiBlocks = [], wallMeshes = [], bullets = [], turrets = [],
 let isDragging = false, isFiring = false, fireTimer = 0;
 let startPoint = new THREE.Vector3(), dragStartMouse = new THREE.Vector2();
 let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
-const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08;
+const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08, detectionZone = 650;
 const maxWallGridHeight = 8 * blockSize;
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
 let playerHP = 100, playerBaseHP = 100, aiBaseHP = 100, playerGold = 100;
@@ -96,9 +96,27 @@ function isInProtectedBase(x, z) {
     return null;
 }
 
-function canBuildHere(pos) {
+function canBuildHere(pos, isPlayer) {
     if (isInProtectedBase(pos.x, pos.z)) return false;
+    const diagSum = pos.x + pos.z;
+    if (Math.abs(diagSum) < 8) return false;
     return true;
+}
+
+function createAlignedWallTexture(theme, isZWall) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1000; canvas.height = 100;
+    const ctx = canvas.getContext('2d');
+    const isBlue = theme === 'blue';
+    ctx.fillStyle = isBlue ? '#08142b' : '#26060a';
+    ctx.fillRect(0, 0, 1000, 100 - maxWallGridHeight);
+    for (let u = 2; u < 1000; u += blockSize) {
+        for (let y = 0; y < maxWallGridHeight; y += blockSize) {
+            ctx.fillStyle = isBlue ? '#0a1a36' : '#33080e';
+            ctx.fillRect(u, 100 - y - blockSize, blockSize, blockSize);
+        }
+    }
+    return new THREE.CanvasTexture(canvas);
 }
 
 function createAlignedFloorTexture() {
@@ -109,23 +127,52 @@ function createAlignedFloorTexture() {
     ctx.fillRect(0, 0, 1000, 1000);
     for (let x = 2; x < 1000; x += blockSize) {
         for (let z = 2; z < 1000; z += blockSize) {
-            ctx.fillStyle = (x + z) >= 1000 ? '#0a1a36' : '#33080e';
+            let isBlue = (x + z) >= 1000;
+            ctx.fillStyle = isBlue ? '#0a1a36' : '#33080e';
             ctx.fillRect(x, z, blockSize, blockSize);
         }
     }
     return new THREE.CanvasTexture(canvas);
 }
 
-function tryRecruitPlayerSnail() {
-    if (!gameActive) return; let n = Date.now(); if (n - lastRecruitTime < recruitCooldown) return;
-    if (playerGold >= 2) { playerGold -= 2; spawnYellowSnail(new THREE.Vector3(465, 0, 465)); lastRecruitTime = n; }
+class CrimsonStalker {
+    constructor(cHex, sHex, isYBase=false, isRedRun=false, isYRun=false) {
+        this.group = new THREE.Group(); this.limbs = {}; this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
+        this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0;
+        this.shatterHex = sHex; this.isYellowBaseMan = isYBase; this.isRedRunner = isRedRun; this.isYellowRunner = isYRun;
+        this.navState = 'SEEK'; this.wallFollowDir = Math.random() > 0.5 ? 1 : -1; this.followSteps = 0;
+        this.startFollowPos = new THREE.Vector3(); this.currentHeading = new THREE.Vector3(0, 0, 1);
+        
+        const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0 });
+        const createPart = (n, w, h, d, y, p) => {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.y = y; m.userData.partName = n; p.add(m); this.limbs[n] = m; return m;
+        };
+        const t = createPart('torso', 2, 3, 1, 4, this.group); createPart('head', 1.2, 1.2, 1.2, 2.2, t);
+        createPart('lArm', 0.6, 2.5, 0.6, 0.2, t).position.x = -1.5; createPart('rArm', 0.6, 2.5, 0.6, 0.2, t).position.x = 1.5;
+        createPart('lLeg', 0.8, 3, 0.8, -3, t).position.x = -0.6; createPart('rLeg', 0.8, 3, 0.8, -3, t).position.x = 0.6;
+        scene.add(this.group);
+    }
+    takeDamage(part, amt) {
+        if (this.isShattered || !this.limbs[part]) return;
+        this.health[part] -= (part === 'head' ? amt * 3 : amt);
+        if (this.health.head <= 0 || this.health.torso <= 0) this.explode();
+    }
+    explode() {
+        if (this.isShattered) return; this.isShattered = true; this.group.visible = false; this.markedForRemoval = true;
+    }
+    update(tPos) {
+        if (this.isShattered) return;
+        this.group.lookAt(tPos.x, this.group.position.y, tPos.z);
+    }
 }
-function spawnYellowSnail(pos) { playerSnailsSpawned++; let sn = new CrimsonSnail(0x0077ff, true); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460)]; snails.push(sn); }
 
 class CrimsonSnail {
     constructor(cHex, isYTeam=true) {
         this.group = new THREE.Group(); this.health = 120; this.isShattered = false; this.isYellowTeam = isYTeam;
         this.moveSpeed = 0.5; this.currentWaypointIndex = 0; this.waypoints = [];
+        this.navState = 'SEEK'; this.wallFollowDir = Math.random() > 0.5 ? 1 : -1; this.followSteps = 0;
+        this.startFollowPos = new THREE.Vector3(); this.currentHeading = new THREE.Vector3(0, 0, 1);
+        
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0 });
         const sh = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 2.0, 8), mat); sh.rotation.z = Math.PI / 2; sh.position.y = 2; this.group.add(sh);
         const b = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 4.5), mat); b.position.y = 0.5; this.group.add(b);
@@ -136,8 +183,49 @@ class CrimsonSnail {
         if (this.health <= 0) { playerGold += 2; this.explode(); }
     }
     explode() {
-        this.isShattered = true; this.group.visible = false; this.markedForRemoval = true;
+        if (this.isShattered) return; this.isShattered = true; this.group.visible = false; this.markedForRemoval = true;
     }
+}
+
+function tryRecruitPlayerSnail() {
+    if (!gameActive) return; let n = Date.now(); if (n - lastRecruitTime < recruitCooldown) return;
+    if (playerGold >= 2) { playerGold -= 2; spawnYellowSnail(new THREE.Vector3(465, 0, 465)); lastRecruitTime = n; }
+}
+function spawnYellowSnail(pos) { playerSnailsSpawned++; let sn = new CrimsonSnail(0x0077ff, true); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460)]; snails.push(sn); }
+function spawnRedSnail(pos) { aiSnailsSpawned++; let sn = new CrimsonSnail(0xcc2222, false); sn.group.position.copy(pos); sn.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, 460)]; snails.push(sn); }
+
+function createCube(pos, col) {
+    const g = new THREE.Group(), geo = new THREE.BoxGeometry(blockSize-0.08, blockSize-0.08, blockSize-0.08);
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: col, roughness: 1.0 }));
+    g.add(m); g.position.copy(pos); return g;
+}
+
+function calculatePlacementTarget(hit) {
+    let tPos = new THREE.Vector3();
+    if (hit.object === floor) {
+        tPos.set(Math.round(hit.point.x / blockSize) * blockSize, blockSize / 2, Math.round(hit.point.z / blockSize) * blockSize);
+    } else {
+        let r = hit.object; while(r.parent && r.parent !== scene) r = r.parent;
+        tPos.copy(r.position).add(hit.face.normal.clone().multiplyScalar(blockSize));
+    }
+    return tPos;
+}
+
+function checkObstacleAt(pos, size) {
+    if (Math.abs(pos.x) > 495 || Math.abs(pos.z) > 495) return true;
+    const testBox = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(pos.x, 2, pos.z), size);
+    for (let b of [...userBlocks, ...aiBlocks]) {
+        if (new THREE.Box3().setFromObject(b).intersectsBox(testBox)) return true;
+    }
+    return false;
+}
+
+function executeBugNavigation(entity, currentPos, targetPos, sizeVec, speed) {
+    let toTarget = new THREE.Vector3().subVectors(targetPos, currentPos); toTarget.y = 0;
+    let directDir = toTarget.clone().normalize();
+    let directClear = !checkObstacleAt(currentPos.clone().addScaledVector(directDir, speed * 2.2), sizeVec);
+    if (directClear) return directDir;
+    return directDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
 }
 
 function init() {
@@ -176,17 +264,10 @@ function init() {
         b.add(bar); playerGroup.add(b); turrets.push({ base: b, barrel: bar });
     });
 
-    yaw = 0.785;
-    playerGroup.rotation.y = yaw;
-    playerGroup.position.copy(playerSpawnPos); 
+    yaw = 0.785; playerGroup.rotation.y = yaw; playerGroup.position.copy(playerSpawnPos); 
     scene.add(playerGroup); 
-    
-    // CAMERA PARENTED TO PLAYER TO KEEP YOU DEAD CENTER
-    playerGroup.add(camera); 
-    camera.position.set(0, 7, 15); 
-    camera.lookAt(0, 0, -20);
+    playerGroup.add(camera); camera.position.set(0, 7, 15); camera.lookAt(0, 0, -20);
 
-    // Remote opponent vessel placeholder
     remotePlayerGroup = new THREE.Group();
     remotePlayerGroup.add(new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.2, 5), new THREE.MeshStandardMaterial({ color: 0xcc2222 })));
     scene.add(remotePlayerGroup);
@@ -197,10 +278,8 @@ function init() {
     });
 
     socket.on('block_placed', (pos) => {
-        const b = new THREE.Mesh(new THREE.BoxGeometry(blockSize, blockSize, blockSize), new THREE.MeshStandardMaterial({ color: 0xd03333 }));
-        b.position.set(pos.x, pos.y, pos.z);
-        scene.add(b);
-        aiBlocks.push(b);
+        const b = createCube(new THREE.Vector3(pos.x, pos.y, pos.z), 0xd03333);
+        scene.add(b); aiBlocks.push(b); existingCubes.set(`${pos.x},${pos.y},${pos.z}`, b);
     });
 }
 
@@ -208,16 +287,16 @@ window.addEventListener('mousedown', (e) => {
     if (e.button === 0) isFiring = true; 
     if (e.button === 2) {
         raycaster.setFromCamera(mouse, camera);
-        const hits = raycaster.intersectObject(floor);
+        const hits = raycaster.intersectObjects([floor, ...userBlocks], true);
         if (hits.length > 0) {
-            const pt = hits[0].point;
-            const tPos = new THREE.Vector3(Math.round(pt.x/blockSize)*blockSize, blockSize/2, Math.round(pt.z/blockSize)*blockSize);
-            if (canBuildHere(tPos)) {
-                const b = new THREE.Mesh(new THREE.BoxGeometry(blockSize, blockSize, blockSize), new THREE.MeshStandardMaterial({ color: 0x0077ff }));
-                b.position.copy(tPos);
-                scene.add(b);
-                userBlocks.push(b);
-                socket.emit('place_block', { x: tPos.x, y: tPos.y, z: tPos.z });
+            let ptTarget = calculatePlacementTarget(hits[0]);
+            if (ptTarget && canBuildHere(ptTarget, true)) {
+                const k = `${Math.round(ptTarget.x)},${Math.round(ptTarget.y)},${Math.round(ptTarget.z)}`;
+                if (!existingCubes.has(k)) {
+                    const b = createCube(ptTarget, 0x0077ff);
+                    scene.add(b); userBlocks.push(b); existingCubes.set(k, b);
+                    socket.emit('place_block', { x: ptTarget.x, y: ptTarget.y, z: ptTarget.z });
+                }
             }
         }
     }
@@ -229,10 +308,7 @@ window.addEventListener('mousemove', (e) => {
     document.getElementById('cursor-ui').style.left = e.clientX + 'px'; 
     document.getElementById('cursor-ui').style.top = e.clientY + 'px'; 
 });
-window.addEventListener('keydown', e => { 
-    keys[e.code] = true; 
-    if (e.code === 'KeyG') tryRecruitPlayerSnail(); 
-});
+window.addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyG') tryRecruitPlayerSnail(); });
 window.addEventListener('keyup', e => keys[e.code] = false);
 window.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -245,10 +321,8 @@ function animate() {
     playerGroup.rotation.y = yaw;
 
     let move = new THREE.Vector3(); 
-    if(keys['KeyW']) move.z -= 1; 
-    if(keys['KeyS']) move.z += 1; 
-    if(keys['KeyA']) move.x -= 1; 
-    if(keys['KeyD']) move.x += 1;
+    if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1; 
+    if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
 
     if (move.length() > 0) {
         move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion);
@@ -258,6 +332,14 @@ function animate() {
 
     document.getElementById('player-gold').innerText = playerGold;
     document.getElementById('vanguard-snails').innerText = snails.filter(s => !s.isShattered).length;
+
+    snails.forEach(sn => {
+        if (!sn.isShattered) {
+            let tar = sn.waypoints[sn.currentWaypointIndex];
+            let steer = executeBugNavigation(sn, sn.group.position, tar, new THREE.Vector3(3.2, 3, 4.8), sn.moveSpeed);
+            if(steer) sn.group.position.addScaledVector(steer, sn.moveSpeed);
+        }
+    });
 
     renderer.render(scene, camera);
 }
