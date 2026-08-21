@@ -5,63 +5,60 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, { cors: { origin: '*' } });
 
-app.use(express.static(path.join(__dirname)));
+const PORT = process.env.PORT || 3000;
 
-let players = {}; // id -> { role, x, z, yaw, hp, baseHP, gold, type }
-let gameState = {
-    blocks: [],
-    bullets: [],
-    runners: [],
-    snails: [],
-    playerBaseHP: 100,
-    aiBaseHP: 100
-};
+app.use(express.static(path.join(__dirname, 'public')));
+
+let players = {}; // socket.id -> { team: 'blue' | 'red' }
+let bluePlayer = null;
+let redPlayer = null;
 
 io.on('connection', (socket) => {
-    console.log(`User connected: ${socket.id}`);
+    // Role Assignment: 1st connection = Blue, 2nd connection = Red
+    if (!bluePlayer) {
+        bluePlayer = socket.id;
+        players[socket.id] = { team: 'blue' };
+        socket.emit('roleAssign', { team: 'blue' });
+    } else if (!redPlayer) {
+        redPlayer = socket.id;
+        players[socket.id] = { team: 'red' };
+        socket.emit('roleAssign', { team: 'red' });
+    } else {
+        players[socket.id] = { team: 'spectator' };
+        socket.emit('roleAssign', { team: 'spectator' });
+    }
 
-    // Assign roles: First player is Vanguard (Blue), second is Architect (Red)
-    let role = Object.keys(players).length === 0 ? 'vanguard' : 'architect';
-    players[socket.id] = {
-        id: socket.id,
-        role: role,
-        x: role === 'vanguard' ? 460 : -490,
-        z: role === 'vanguard' ? 460 : -490,
-        yaw: role === 'vanguard' ? 0.785 : 0,
-        hp: 100,
-        gold: 100
-    };
-
-    socket.emit('assigned_role', role);
-
-    socket.on('player_input', (data) => {
-        if (players[socket.id]) {
-            players[socket.id].x = data.x;
-            players[socket.id].z = data.z;
-            players[socket.id].yaw = data.yaw;
-            players[socket.id].hp = data.hp;
-        }
+    // Vehicle Movement Relay
+    socket.on('playerMove', (data) => {
+        socket.broadcast.emit('enemyMove', data);
     });
 
-    socket.on('spawn_unit', (data) => {
-        // Handle unit or block spawns sent from clients
-        io.emit('server_action', data);
+    // Shooting Relay
+    socket.on('playerFire', (data) => {
+        socket.broadcast.emit('enemyFire', data);
     });
 
+    // Block Placement Relay
+    socket.on('placeBlock', (data) => {
+        socket.broadcast.emit('blockPlaced', data);
+    });
+
+    // Unit Spawning Relay
+    socket.on('spawnUnit', (data) => {
+        io.emit('unitSpawned', data);
+    });
+
+    // Disconnection Handling
     socket.on('disconnect', () => {
-        console.log(`User disconnected: ${socket.id}`);
+        if (socket.id === bluePlayer) bluePlayer = null;
+        if (socket.id === redPlayer) redPlayer = null;
         delete players[socket.id];
+        io.emit('playerLeft', { id: socket.id });
     });
 });
 
-// Broadcast game loops to all clients at 30fps
-setInterval(() => {
-    io.emit('state_update', { players, gameState });
-}, 1000 / 30);
-
-const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Vanguard server listening on port ${PORT}`);
 });
