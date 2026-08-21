@@ -238,11 +238,15 @@ class CrimsonSnail {
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
         const sh = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 2.0, 8), mat); sh.rotation.z = Math.PI / 2; sh.position.y = 2; this.group.add(sh);
         const b = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 4.5), mat); b.position.y = 0.5; this.group.add(b);
+        
+        // Eyes positioned at the front (+Z direction) so they face forward
         [-0.5, 0.5].forEach(o => {
-            const s = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.5), mat); s.position.set(o, 1.5, -1.8);
+            const s = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.5), mat); 
+            s.position.set(o, 1.5, 1.8); 
             const eb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), new THREE.MeshBasicMaterial({ color: 0x111111 })); eb.position.y = 0.75;
             s.add(eb); this.group.add(s);
         });
+        
         this.group.userData.entity = this; scene.add(this.group);
     }
     takeDamage(amt, hitPl) {
@@ -295,7 +299,7 @@ function spawnYellowRunner(pos) {
 function spawnRedRunner(pos) { 
     let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(490, 0, -490), new THREE.Vector3(490, 0, 490)]; 
+    r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, 490)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
@@ -575,7 +579,6 @@ function animate() {
     
     stalkers.forEach(s => s.update(playerGroup.position));
 
-    // Runners navigation with wall-following gap detection & arm/leg animation
     for (let i = runners.length - 1; i >= 0; i--) {
         let r = runners[i];
         if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
@@ -612,7 +615,6 @@ function animate() {
         } else { r.update(playerGroup.position); }
     }
 
-    // SNAILS NAVIGATION & MOVEMENT
     for (let i = snails.length - 1; i >= 0; i--) {
         let sn = snails[i]; 
         if (sn.markedForRemoval) { scene.remove(sn.group); snails.splice(i, 1); continue; }
