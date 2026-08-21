@@ -14,20 +14,25 @@ let players = {};
 let bluePlayer = null;
 let redPlayer = null;
 
+// Track both players' health states on the server
+let gameStates = {
+    blue: { hp: 100 },
+    red: { hp: 100 }
+};
+
 io.on('connection', (socket) => {
-    // Assign roles dynamically
     if (!bluePlayer) {
         bluePlayer = socket.id;
-        players[socket.id] = { team: 'blue', hp: 100 };
+        players[socket.id] = { team: 'blue' };
         socket.emit('roleAssign', { team: 'blue' });
         console.log(`Blue Commander connected: ${socket.id}`);
     } else if (!redPlayer) {
         redPlayer = socket.id;
-        players[socket.id] = { team: 'red', hp: 100 };
+        players[socket.id] = { team: 'red' };
         socket.emit('roleAssign', { team: 'red' });
         console.log(`Red Commander connected: ${socket.id}`);
     } else {
-        players[socket.id] = { team: 'spectator', hp: 100 };
+        players[socket.id] = { team: 'spectator' };
         socket.emit('roleAssign', { team: 'spectator' });
         console.log(`Spectator connected: ${socket.id}`);
     }
@@ -48,42 +53,29 @@ io.on('connection', (socket) => {
         io.emit('unitSpawned', data);
     });
 
-    // Handle incoming hits and broadcast damage to the opponent
+    // Synchronize damage across clients
     socket.on('shipHit', (data) => {
-        socket.broadcast.emit('shipHit', data);
-    });
+        let targetTeam = data.targetTeam;
+        if (gameStates[targetTeam]) {
+            gameStates[targetTeam].hp = Math.max(0, gameStates[targetTeam].hp - data.damage);
+            
+            // Broadcast the updated health to everyone
+            io.emit('shipHealthUpdate', { 
+                team: targetTeam, 
+                hp: gameStates[targetTeam].hp 
+            });
 
-    // Handle respawn coordination
-    socket.on('playerRespawn', (data) => {
-        socket.broadcast.emit('playerRespawn', data);
+            if (gameStates[targetTeam].hp <= 0) {
+                gameStates[targetTeam].hp = 100;
+                io.emit('shipRespawn', { team: targetTeam });
+            }
+        }
     });
 
     socket.on('disconnect', () => {
-        if (socket.id === bluePlayer) {
-            bluePlayer = null;
-            console.log('Blue Commander disconnected.');
-        } else if (socket.id === redPlayer) {
-            redPlayer = null;
-            console.log('Red Commander disconnected.');
-        }
+        if (socket.id === bluePlayer) bluePlayer = null;
+        if (socket.id === redPlayer) redPlayer = null;
         delete players[socket.id];
-        
-        for (let id in players) {
-            if (players[id].team === 'spectator') {
-                if (!bluePlayer) {
-                    bluePlayer = id;
-                    players[id].team = 'blue';
-                    io.to(id).emit('roleAssign', { team: 'blue' });
-                    break;
-                } else if (!redPlayer) {
-                    redPlayer = id;
-                    players[id].team = 'red';
-                    io.to(id).emit('roleAssign', { team: 'red' });
-                    break;
-                }
-            }
-        }
-
         io.emit('playerLeft', { id: socket.id });
     });
 });
