@@ -50,7 +50,7 @@
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
-                [W/A/S/D] MOVE | [MOUSE] AIM | [F]/[G] SPAWN MEN/SNAIL (1G/2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | RAM FOES TO CRUSH!
+                [W/A/S/D] MOVE | [MOUSE] AIM | SHOOT BASE MAN OR [G] SNAIL<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | RAM FOES TO CRUSH!
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
@@ -89,7 +89,7 @@ const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
 let playerHP = 100, playerBaseHP = 100, enemyBaseHP = 100, playerGold = 100, enemyGold = 100, enemyHP = 100;
 let gameActive = true;
 let lastRecruitTime = 0; const recruitCooldown = 400;
-let snails = [], runners = [], treadRibs = [], sirenGeo;
+let snails = [], runners = [], stalkers = [], treadRibs = [], sirenGeo;
 let playerSpawnPos = new THREE.Vector3(460, 0, 460);
 
 socket.on('roleAssign', (data) => {
@@ -225,10 +225,10 @@ function createAlignedFloorTexture() {
 }
 
 class CrimsonStalker {
-    constructor(cHex, sHex, isBlueTeam=true) {
+    constructor(cHex, sHex, isBlueTeam=true, isBaseMan=false) {
         this.group = new THREE.Group(); this.limbs = {}; 
         this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
-        this.isShattered = false; this.isBlueTeam = isBlueTeam;
+        this.isShattered = false; this.isBlueTeam = isBlueTeam; this.isBaseMan = isBaseMan;
         this.moveSpeed = 1.2;
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
         const createPart = (n, w, h, d, y, p) => {
@@ -242,6 +242,13 @@ class CrimsonStalker {
     }
     takeDamage(part, amt, hitPl) {
         if (this.isShattered || !this.limbs[part]) return;
+        if (this.isBaseMan) {
+            if (hitPl && playerGold >= 1) {
+                playerGold -= 1;
+                socket.emit('spawnUnit', { type: 'runner', team: myTeam });
+            }
+            return;
+        }
         this.health[part] -= (part === 'head' ? amt * 3 : amt);
         const s = Math.max(0.1, this.health[part] / 100); this.limbs[part].scale.set(s, s, s);
         if (this.health.head <= 0 || this.health.torso <= 0) {
@@ -350,7 +357,7 @@ function fireWeapon() {
     turrets.forEach(t => {
         const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0x0066ff : 0xff3333 })), wp = new THREE.Vector3();
         t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); raycaster.setFromCamera(mouse, camera);
-        const pool = [scene, floor, recruitmentPad, enemyPad, ...userBlocks, ...enemyBlocks, enemyGroup];
+        const pool = [scene, floor, recruitmentPad, enemyPad, ...userBlocks, ...enemyBlocks, enemyGroup, ...stalkers];
         runners.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         snails.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         const hits = raycaster.intersectObjects(pool, true); if (hits.length > 0) { hits.sort((a, b) => a.distance - b.distance); tar.copy(hits[0].point); } else { raycaster.ray.at(200, tar); }
@@ -393,6 +400,11 @@ function initGameWorld() {
 
     enemyPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 1.0, metalness: 0.0 })); 
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
+
+    stalkers = [];
+    let blueBaseMan = new CrimsonStalker(0x0077ff, 0x00aaff, true, true); blueBaseMan.group.position.set(490, 0, 490);
+    let redBaseMan = new CrimsonStalker(0xcc2222, 0xff3333, false, true); redBaseMan.group.position.set(-490, 0, -490);
+    stalkers.push(blueBaseMan, redBaseMan);
 
     sirenGeo = new THREE.BoxGeometry(0.7, 0.25, 0.5);
     let myColor = myTeam === 'blue' ? 0x0088ff : 0xcc2222;
@@ -490,6 +502,7 @@ function animate() {
     document.getElementById('base-hp-fill').style.width = playerBaseHP + '%'; document.getElementById('base-hp-text').innerText = 'BASE: ' + Math.round(playerBaseHP) + '%';
     document.getElementById('ai-base-hp-fill').style.width = enemyBaseHP + '%'; document.getElementById('ai-base-hp-text').innerText = 'BASE: ' + Math.round(enemyBaseHP) + '%';
     document.getElementById('player-gold').innerText = playerGold;
+    document.getElementById('enemy-gold').innerText = enemyGold;
     
     updateOverheadUI();
     updateCounters();
@@ -544,7 +557,7 @@ function animate() {
             if (dir.length() > 1.0) {
                 dir.normalize();
                 r.group.position.addScaledVector(dir, r.moveSpeed);
-                r.group.lookAt(targetPos.x, r.group.position.y, targetPos.z);
+                r.group.lookAt(targetPos.x, targetPos.y, targetPos.z);
             } else {
                 if (r.isBlueTeam && myTeam === 'blue') enemyBaseHP = Math.max(0, enemyBaseHP - 5);
                 if (!r.isBlueTeam && myTeam === 'red') playerBaseHP = Math.max(0, playerBaseHP - 5);
@@ -587,7 +600,7 @@ function animate() {
             b.userData.life = 0;
         }
 
-        let pool = [recruitmentPad, enemyPad, ...userBlocks, ...enemyBlocks, enemyGroup];
+        let pool = [recruitmentPad, enemyPad, ...userBlocks, ...enemyBlocks, enemyGroup, ...stalkers];
         runners.forEach(s => { if(!s.isShattered) pool.push(s.group); });
         snails.forEach(s => { if(!s.isShattered) pool.push(s.group); });
 
@@ -629,7 +642,7 @@ function animate() {
     
     raycaster.setFromCamera(mouse, camera);
     let activePad = myTeam === 'blue' ? recruitmentPad : enemyPad;
-    const lPool = [activePad, ...wallMeshes, ...userBlocks, ...enemyBlocks, enemyGroup]; 
+    const lPool = [activePad, ...wallMeshes, ...userBlocks, ...enemyBlocks, enemyGroup, ...stalkers]; 
     runners.forEach(s => { if(!s.isShattered) lPool.push(s.group); });
     snails.forEach(s => { if(!s.isShattered) lPool.push(s.group); });
     const lHits = raycaster.intersectObjects(lPool, true); 
