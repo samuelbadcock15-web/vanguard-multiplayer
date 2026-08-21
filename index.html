@@ -171,7 +171,6 @@ function canBuildHere(pos, isPlayer) {
     return true;
 }
 
-// CrimsonStalker class (Base Man / Guard in the corner & Animated Runners)
 class CrimsonStalker {
     constructor(cHex, sHex, isYBase=false, isRedRun=false, isYRun=false) {
         this.group = new THREE.Group(); this.limbs = {}; this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
@@ -239,7 +238,6 @@ class CrimsonSnail {
         const sh = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 2.0, 8), mat); sh.rotation.z = Math.PI / 2; sh.position.y = 2; this.group.add(sh);
         const b = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 4.5), mat); b.position.y = 0.5; this.group.add(b);
         
-        // Eyes positioned at the front (+Z direction) so they face forward
         [-0.5, 0.5].forEach(o => {
             const s = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.5), mat); 
             s.position.set(o, 1.5, 1.8); 
@@ -391,13 +389,6 @@ function createCube(pos, col, emCol, outCol = 0x334455) {
     const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: col, roughness: 1.0, metalness: 0.0 }));
     const out = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: outCol }));
     g.add(m, out); g.position.copy(pos); return g;
-}
-
-function createOutlinedCube(pos) {
-    const g = new THREE.Group(); 
-    const geo = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
-    g.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: myTeam === 'blue' ? 0x0066cc : 0xcc2222, roughness: 1.0, metalness: 0.0 })));
-    g.position.copy(pos); return g;
 }
 
 function createShip(col) {
@@ -561,6 +552,16 @@ function checkCollision(pos) {
     return false;
 }
 
+function updateOverheadUI() { 
+    if(!playerGroup || !camera || !renderer) return; 
+    const wp = new THREE.Vector3(); 
+    playerGroup.getWorldPosition(wp); 
+    wp.y += 1.8; 
+    wp.project(camera); 
+    document.getElementById('overhead-ui').style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
+    document.getElementById('overhead-ui').style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
+}
+
 function updateCounters() {
     const myRunners = runners.filter(r => (myTeam === 'blue' ? r.isYellowRunner : !r.isYellowRunner) && !r.isShattered).length;
     const mySnails = snails.filter(sn => (myTeam === 'blue' ? sn.isYellowTeam : !sn.isYellowTeam) && !sn.isShattered).length;
@@ -575,6 +576,7 @@ function animate() {
     document.getElementById('base-hp-fill').style.width = playerBaseHP + '%'; document.getElementById('base-hp-text').innerText = 'BASE: ' + Math.round(playerBaseHP) + '%';
     document.getElementById('player-gold').innerText = playerGold;
     
+    updateOverheadUI();
     updateCounters();
     
     stalkers.forEach(s => s.update(playerGroup.position));
