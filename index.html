@@ -160,8 +160,17 @@ socket.on('shipHit', (data) => {
     document.getElementById('ai-text-ai').innerText = 'VESSEL: ' + Math.round(enemyHP) + '%';
     if (enemyHP <= 0) {
         enemyHP = 100;
+        document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
+        document.getElementById('ai-text-ai').innerText = 'VESSEL: ' + Math.round(enemyHP) + '%';
         let respawnTarget = myTeam === 'blue' ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
         aiGroup.position.copy(respawnTarget);
+    }
+});
+
+socket.on('playerRespawn', (data) => {
+    if (aiGroup) {
+        aiGroup.position.set(data.x, data.y, data.z);
+        aiGroup.rotation.y = data.yaw;
     }
 });
 
@@ -583,6 +592,14 @@ function updateCounters() {
 function animate() {
     requestAnimationFrame(animate); if (!renderer || !scene || !camera) return;
     
+    if (playerHP <= 0) {
+        playerHP = 100;
+        playerGroup.position.copy(playerSpawnPos);
+        yaw = (myTeam === 'red') ? -2.356 : 0.785;
+        playerGroup.rotation.y = yaw;
+        socket.emit('playerRespawn', { x: playerSpawnPos.x, y: playerSpawnPos.y, z: playerSpawnPos.z, yaw: yaw });
+    }
+
     document.getElementById('hp-fill').style.width = playerHP + '%'; document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
     document.getElementById('base-hp-fill').style.width = playerBaseHP + '%'; document.getElementById('base-hp-text').innerText = 'BASE: ' + Math.round(playerBaseHP) + '%';
     document.getElementById('player-gold').innerText = playerGold;
@@ -706,6 +723,10 @@ function animate() {
 
         if (b.userData.isPlayerBullet && aiGroup && b.position.distanceTo(aiGroup.position) < 4) {
             socket.emit('shipHit', { damage: 10 });
+            b.userData.life = 0;
+        }
+        if (!b.userData.isPlayerBullet && playerGroup && b.position.distanceTo(playerGroup.position) < 4) {
+            playerHP = Math.max(0, playerHP - 10);
             b.userData.life = 0;
         }
 
