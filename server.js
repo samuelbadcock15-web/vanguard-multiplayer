@@ -4,52 +4,84 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, { cors: { origin: '*' } });
+
+const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
 
 let players = {};
+let bluePlayer = null;
+let redPlayer = null;
 
 io.on('connection', (socket) => {
-    console.log('Player connected:', socket.id);
+    // Assign roles dynamically
+    if (!bluePlayer) {
+        bluePlayer = socket.id;
+        players[socket.id] = { team: 'blue' };
+        socket.emit('roleAssign', { team: 'blue' });
+        console.log(`Blue Commander connected: ${socket.id}`);
+    } else if (!redPlayer) {
+        redPlayer = socket.id;
+        players[socket.id] = { team: 'red' };
+        socket.emit('roleAssign', { team: 'red' });
+        console.log(`Red Commander connected: ${socket.id}`);
+    } else {
+        players[socket.id] = { team: 'spectator' };
+        socket.emit('roleAssign', { team: 'spectator' });
+        console.log(`Spectator connected: ${socket.id}`);
+    }
 
-    // Assign roles: First player is blue (Vanguard), second player is red (Architect)
-    const roleKeys = Object.keys(players);
-    let role = roleKeys.length === 0 ? 'blue' : 'red';
-    players[socket.id] = { role: role };
-
-    socket.emit('assigned_role', role);
-    io.emit('current_players', players);
-
-    socket.on('player_update', (data) => {
-        if (players[socket.id]) {
-            players[socket.id].x = data.x;
-            players[socket.id].z = data.z;
-            players[socket.id].rotation = data.rotation;
-            socket.broadcast.emit('update_player', { id: socket.id, ...data });
-        }
+    socket.on('playerMove', (data) => {
+        socket.broadcast.emit('enemyMove', data);
     });
 
-    socket.on('place_block', (data) => {
-        socket.broadcast.emit('block_placed', data);
+    socket.on('playerFire', (data) => {
+        socket.broadcast.emit('enemyFire', data);
     });
 
-    socket.on('fire_bullet', (data) => {
-        socket.broadcast.emit('bullet_fired', data);
+    socket.on('placeBlock', (data) => {
+        socket.broadcast.emit('blockPlaced', data);
     });
 
-    socket.on('spawn_unit', (data) => {
-        io.emit('unit_spawned', data);
+    socket.on('spawnUnit', (data) => {
+        // Broadcast unit creation to both clients
+        io.emit('unitSpawned', data);
     });
 
     socket.on('disconnect', () => {
-        console.log('Player disconnected:', socket.id);
+        if (socket.id === bluePlayer) {
+            bluePlayer = null;
+            console.log('Blue Commander disconnected.');
+        } else if (socket.id === redPlayer) {
+            redPlayer = null;
+            console.log('Red Commander disconnected.');
+        }
         delete players[socket.id];
-        io.emit('player_disconnected', socket.id);
+        
+        // Promote a spectator if a slot opened up
+        for (let id in players) {
+            if (players[id].team === 'spectator') {
+                if (!bluePlayer) {
+                    bluePlayer = id;
+                    players[id].team = 'blue';
+                    io.to(id).emit('roleAssign', { team: 'blue' });
+                    console.log(`Promoted spectator ${id} to Blue Commander.`);
+                    break;
+                } else if (!redPlayer) {
+                    redPlayer = id;
+                    players[id].team = 'red';
+                    io.to(id).emit('roleAssign', { team: 'red' });
+                    console.log(`Promoted spectator ${id} to Red Commander.`);
+                    break;
+                }
+            }
+        }
+
+        io.emit('playerLeft', { id: socket.id });
     });
 });
 
-const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Vanguard multiplayer server listening on port ${PORT}`);
 });
