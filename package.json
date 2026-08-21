@@ -1,7 +1,6 @@
 {
   "name": "vanguard-multiplayer",
   "version": "1.0.0",
-  "description": "Multiplayer Vanguard vs Architect",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
