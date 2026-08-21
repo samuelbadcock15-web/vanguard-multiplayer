@@ -30,10 +30,6 @@
         #ai-hp-fill, #ai-base-hp-fill { height: 100%; background: #00aa44; transition: width 0.3s; }
         
         .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 8px; font-weight: bold; text-shadow: 1px 1px 2px #000; text-transform: uppercase; letter-spacing: 0.5px; z-index: 2; box-sizing: border-box; }
-        
-        #game-over-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(240,245,250,0.95); backdrop-filter: blur(10px); z-index: 10000; display: none; flex-direction: column; align-items: center; justify-content: center; color: #111; text-align: center; border: 6px solid #0088ff; box-sizing: border-box; }
-        .restart-btn { background: #0088ff; color: #fff; border: 2px solid #0066cc; padding: 10px 25px; font-size: 14px; font-weight: bold; cursor: pointer; text-transform: uppercase; border-radius: 4px; }
-        .restart-btn:hover { background: #0055cc; }
     </style>
 </head>
 <body>
@@ -67,17 +63,6 @@
             </div>
         </div>
     </div>
-</div>
-<div id="game-over-screen">
-    <h2 id="game-over-title">SIMULATION CONCLUDED</h2>
-    <p id="game-over-reason">TERMINATION REASON</p>
-    <div style="background:rgba(255,255,255,0.9); border:1px solid #ccc; padding:15px; margin-bottom:20px; text-align:left; font-size:13px; line-height:1.6; border-radius:4px;">
-        <div>&gt; RED KILLED: <span id="stat-red-killed">0</span></div>
-        <div>&gt; YELLOW KILLED: <span id="stat-yellow-killed">0</span></div>
-        <div>&gt; MY SNAILS: <span id="stat-player-snails">0</span></div>
-        <div>&gt; AI SNAILS: <span id="stat-ai-snails">0</span></div>
-    </div>
-    <button class="restart-btn" onclick="restartGame()">Restart</button>
 </div>
 <div id="three-canvas"></div>
 <script>
@@ -154,26 +139,26 @@ socket.on('unitSpawned', (data) => {
     }
 });
 
-// Update opponent health when they take a hit from you
-socket.on('shipHit', (data) => {
-    enemyHP = Math.max(0, enemyHP - data.damage);
-    document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
-    document.getElementById('ai-text-ai').innerText = 'VESSEL: ' + Math.round(enemyHP) + '%';
-    
-    if (enemyHP <= 0) {
-        enemyHP = 100;
+// Synchronized health updates for both players
+socket.on('shipHealthUpdate', (data) => {
+    let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
+    if (data.team === opponentTeam) {
+        enemyHP = data.hp;
         document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
         document.getElementById('ai-text-ai').innerText = 'VESSEL: ' + Math.round(enemyHP) + '%';
-        let respawnTarget = myTeam === 'blue' ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
-        aiGroup.position.copy(respawnTarget);
+    } else if (data.team === myTeam) {
+        playerHP = data.hp;
     }
 });
 
-// Handle when opponent respawns on their own screen
-socket.on('playerRespawn', (data) => {
-    if (aiGroup) {
-        aiGroup.position.set(data.x, data.y, data.z);
-        aiGroup.rotation.y = data.yaw;
+socket.on('shipRespawn', (data) => {
+    let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
+    if (data.team === opponentTeam && aiGroup) {
+        enemyHP = 100;
+        document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
+        document.getElementById('ai-text-ai').innerText = 'VESSEL: 100%';
+        let respawnTarget = (opponentTeam === 'blue') ? new THREE.Vector3(460, 0, 460) : new THREE.Vector3(-460, 0, -460);
+        aiGroup.position.copy(respawnTarget);
     }
 });
 
@@ -195,16 +180,10 @@ function canBuildHere(pos, isPlayer) {
 }
 
 class CrimsonStalker {
-    constructor(cHex, sHex, isYBase=false, isRedRun=false, isYRun=false) {
+    constructor(cHex, sHex, isYBase=false) {
         this.group = new THREE.Group(); this.limbs = {}; this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
         this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0;
-        this.shatterHex = sHex; this.isYellowBaseMan = isYBase; this.isRedRunner = isRedRun; this.isYellowRunner = isYRun;
-        
-        this.navState = 'SEEK';
-        this.wallFollowDir = Math.random() > 0.5 ? 1 : -1;
-        this.followSteps = 0;
-        this.startFollowPos = new THREE.Vector3();
-        this.currentHeading = new THREE.Vector3(0, 0, 1);
+        this.shatterHex = sHex; this.isYellowBaseMan = isYBase;
         
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
         const createPart = (n, w, h, d, y, p) => {
@@ -218,7 +197,7 @@ class CrimsonStalker {
     }
     takeDamage(part, amt, hitPl) {
         if (this.isShattered || !this.limbs[part]) return;
-        if (this.isYellowBaseMan || this.isBlueBaseMan) return; 
+        if (this.isYellowBaseMan) return; 
         this.health[part] -= (part === 'head' ? amt * 3 : amt);
         const s = Math.max(0.1, this.health[part] / 100); this.limbs[part].scale.set(s, s, s);
         if (this.health.head <= 0 || this.health.torso <= 0) { this.explode(); }
@@ -240,7 +219,7 @@ class CrimsonStalker {
             });
             if (this.shatterTimer > 60) {
                 this.shatterParticles.forEach(p => scene.remove(p)); this.shatterParticles = [];
-                if (this.isYellowRunner || this.isRedRunner) this.markedForRemoval = true; else this.reset();
+                this.reset();
             } return;
         } 
         this.group.lookAt(tPos.x, this.group.position.y, tPos.z);
@@ -311,14 +290,14 @@ function spawnRedSnail(pos) {
 }
 
 function spawnYellowRunner(pos) { 
-    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true); 
+    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false); 
     r.group.position.copy(pos); 
     r.waypoints = [new THREE.Vector3(490, 0, 490), new THREE.Vector3(-490, 0, 490), new THREE.Vector3(-490, 0, -490)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
 function spawnRedRunner(pos) { 
-    let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); 
+    let r = new CrimsonStalker(0xdd3333, 0xdd3333, false); 
     r.group.position.copy(pos); 
     r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, 490)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
@@ -600,6 +579,7 @@ function animate() {
         playerGroup.position.copy(playerSpawnPos);
         yaw = (myTeam === 'red') ? -2.356 : 0.785;
         playerGroup.rotation.y = yaw;
+        socket.emit('shipHit', { targetTeam: myTeam, damage: -100 }); // reset HP on server
         socket.emit('playerRespawn', { x: playerSpawnPos.x, y: playerSpawnPos.y, z: playerSpawnPos.z, yaw: yaw });
     }
 
@@ -667,7 +647,7 @@ function animate() {
             if (steerDir) {
                 sn.group.position.addScaledVector(steerDir, sn.moveSpeed);
                 let lookTarget = sn.group.position.clone().add(steerDir);
-                sn.group.lookAt(lookTarget.x, sn.group.position.y, lookTarget.z);
+                sn.group.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
             }
             
             if (sn.group.position.distanceTo(tar) < 16) {
@@ -724,8 +704,9 @@ function animate() {
         const b = bullets[i]; b.position.add(b.userData.velocity); b.userData.life--;
         if (b.userData.life <= 0) { scene.remove(b); bullets.splice(i, 1); continue; }
 
+        let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
         if (b.userData.isPlayerBullet && aiGroup && b.position.distanceTo(aiGroup.position) < 4) {
-            socket.emit('shipHit', { damage: 10 });
+            socket.emit('shipHit', { targetTeam: opponentTeam, damage: 10 });
             b.userData.life = 0;
         }
         if (!b.userData.isPlayerBullet && playerGroup && b.position.distanceTo(playerGroup.position) < 4) {
