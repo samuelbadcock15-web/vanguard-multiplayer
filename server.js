@@ -39,7 +39,6 @@ io.on('connection', (socket) => {
         console.log(`Spectator connected: ${socket.id}`);
     }
 
-    // Broadcast current ready states to any new connection
     socket.emit('updateReadyStatus', readyStatus);
 
     socket.on('playerReady', () => {
@@ -47,7 +46,6 @@ io.on('connection', (socket) => {
             readyStatus[assignedTeam] = true;
             io.emit('updateReadyStatus', readyStatus);
 
-            // Trigger countdown when both Blue and Red are ready
             if (readyStatus.blue && readyStatus.red && !gameStarted) {
                 gameStarted = true;
                 io.emit('startCountdown');
