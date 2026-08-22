@@ -22,14 +22,13 @@
         .control-details { margin-top: 5px; color: #444; }
         .live-metrics { font-size: 10px; color: #c86400; font-weight: bold; }
         
-        #overhead-ui, #opponent-overhead-ui, #blue-base-hud, #red-base-hud { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
+        /* Floating HUD overlays */
+        #overhead-ui, #opponent-overhead-ui { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
         
         .hp-bar, .hp-bar-ai { position: relative; width: 100px; height: 12px; background: #ccc; border: 1px solid #888; border-radius: 2px; overflow: hidden; box-sizing: border-box; }
         .hp-bar-ai { width: 100px; border-color: #cc2222; background: #f0c0c0; }
         #hp-fill { height: 100%; background: #0077ff; transition: width 0.1s; }
-        #base-hp-fill { height: 100%; background: #0044aa; transition: width 0.3s; }
         #ai-hp-fill { height: 100%; background: #cc2222; transition: width 0.1s; }
-        #ai-base-hp-fill { height: 100%; background: #990000; transition: width 0.3s; }
         
         .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 8px; font-weight: bold; text-shadow: 1px 1px 2px #000; text-transform: uppercase; letter-spacing: 0.5px; z-index: 2; box-sizing: border-box; }
     </style>
@@ -37,19 +36,14 @@
 <body>
 <div id="cursor-ui"><div class="cursor-v"></div><div class="cursor-h"></div></div>
 
+<!-- Floating Overhead HUD for Player Craft -->
 <div id="overhead-ui">
     <div class="hp-bar"><div id="hp-fill" style="width: 100%;"></div><div id="hp-text" class="hp-text">VESSEL: 100%</div></div>
 </div>
 
+<!-- Floating Overhead HUD for Opponent Craft -->
 <div id="opponent-overhead-ui">
     <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="hp-text-ai" class="hp-text">ENEMY: 100%</div></div>
-</div>
-
-<div id="blue-base-hud">
-    <div class="hp-bar"><div id="base-hp-fill" style="width: 100%;"></div><div id="base-hp-text" class="hp-text">BLUE BASE: 100%</div></div>
-</div>
-<div id="red-base-hud">
-    <div class="hp-bar-ai"><div id="ai-base-hp-fill" style="width: 100%;"></div><div id="ai-base-hp-text" class="hp-text">RED BASE: 100%</div></div>
 </div>
 
 <div id="ui-layer">
@@ -82,7 +76,7 @@ let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08;
 const maxWallGridHeight = 8 * blockSize;
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
-let playerHP = 100, playerBaseHP = 100, enemyHP = 100, aiBaseHP = 100, playerGold = 100;
+let playerHP = 100, enemyHP = 100, playerBaseHP = 100, aiBaseHP = 100, playerGold = 100;
 let gameActive = true, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
 let playerSpawnPos = new THREE.Vector3(460, 0, 460);
@@ -144,32 +138,34 @@ socket.on('unitSpawned', (data) => {
     }
 });
 
-socket.on('shipHealthUpdate', (data) => {
-    let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
-    if (data.team === opponentTeam) {
-        enemyHP = data.hp;
-        document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
-        document.getElementById('hp-text-ai').innerText = `ENEMY: ${Math.round(enemyHP)}%`;
-    } else if (data.team === myTeam) {
-        playerHP = data.hp;
+// Authoritative health sync from server
+socket.on('updateHealth', (data) => {
+    if (myTeam === 'blue') {
+        playerHP = data.blueHp;
+        enemyHP = data.redHp;
+    } else {
+        playerHP = data.redHp;
+        enemyHP = data.blueHp;
     }
+    document.getElementById('hp-fill').style.width = playerHP + '%';
+    document.getElementById('hp-text').innerText = `VESSEL: ${Math.round(playerHP)}%`;
+    document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
+    document.getElementById('hp-text-ai').innerText = `ENEMY: ${Math.round(enemyHP)}%`;
 });
 
-socket.on('shipRespawn', (data) => {
-    let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
-    if (data.team === opponentTeam && aiGroup) {
+// Authoritative Respawn coordination from server
+socket.on('forceRespawn', (data) => {
+    if (data.team === myTeam) {
+        playerHP = 100;
+        playerSpawnPos.set(data.x, data.y, data.z);
+        playerGroup.position.copy(playerSpawnPos);
+        yaw = data.yaw;
+        playerGroup.rotation.y = yaw;
+    } else {
         enemyHP = 100;
-        document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
-        document.getElementById('hp-text-ai').innerText = 'ENEMY: 100%';
-        let respawnTarget = (opponentTeam === 'blue') ? new THREE.Vector3(460, 0, 460) : new THREE.Vector3(-460, 0, -460);
-        aiGroup.position.copy(respawnTarget);
-    }
-});
-
-socket.on('playerRespawn', (data) => {
-    if (aiGroup) {
-        aiGroup.position.set(data.x, data.y, data.z);
-        aiGroup.rotation.y = data.yaw;
+        if (aiGroup) {
+            aiGroup.position.set(data.x, data.y, data.z);
+        }
     }
 });
 
@@ -191,16 +187,10 @@ function canBuildHere(pos, isPlayer) {
 }
 
 class CrimsonStalker {
-    constructor(cHex, sHex, isYBase=false, isRedRun=false, isYRun=false) {
+    constructor(cHex, sHex, isYBase=false) {
         this.group = new THREE.Group(); this.limbs = {}; this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
         this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0;
-        this.shatterHex = sHex; this.isYellowBaseMan = isYBase; this.isRedRunner = isRedRun; this.isYellowRunner = isYRun;
-        
-        this.navState = 'SEEK';
-        this.wallFollowDir = Math.random() > 0.5 ? 1 : -1;
-        this.followSteps = 0;
-        this.startFollowPos = new THREE.Vector3();
-        this.currentHeading = new THREE.Vector3(0, 0, 1);
+        this.shatterHex = sHex; this.isYellowBaseMan = isYBase;
         
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
         const createPart = (n, w, h, d, y, p) => {
@@ -236,7 +226,7 @@ class CrimsonStalker {
             });
             if (this.shatterTimer > 60) {
                 this.shatterParticles.forEach(p => scene.remove(p)); this.shatterParticles = [];
-                if (this.isYellowRunner || this.isRedRunner) this.markedForRemoval = true; else this.reset();
+                this.reset();
             } return;
         } 
         this.group.lookAt(tPos.x, this.group.position.y, tPos.z);
@@ -307,14 +297,14 @@ function spawnRedSnail(pos) {
 }
 
 function spawnYellowRunner(pos) { 
-    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true); 
+    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false); 
     r.group.position.copy(pos); 
     r.waypoints = [new THREE.Vector3(490, 0, 490), new THREE.Vector3(-490, 0, 490), new THREE.Vector3(-490, 0, -490)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
 function spawnRedRunner(pos) { 
-    let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); 
+    let r = new CrimsonStalker(0xdd3333, 0xdd3333, false); 
     r.group.position.copy(pos); 
     r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, 490)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
@@ -581,14 +571,6 @@ function updateOverheadUI() {
     const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); ew.y += 1.8; ew.project(camera); 
     document.getElementById('opponent-overhead-ui').style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
     document.getElementById('opponent-overhead-ui').style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
-
-    const bPos = new THREE.Vector3(460, 2, 460); bPos.project(camera);
-    document.getElementById('blue-base-hud').style.left = `${(bPos.x * .5 + .5) * window.innerWidth}px`;
-    document.getElementById('blue-base-hud').style.top = `${(-(bPos.y * .5) + .5) * window.innerHeight}px`;
-
-    const rPos = new THREE.Vector3(-460, 2, -460); rPos.project(camera);
-    document.getElementById('red-base-hud').style.left = `${(rPos.x * .5 + .5) * window.innerWidth}px`;
-    document.getElementById('red-base-hud').style.top = `${(-(rPos.y * .5) + .5) * window.innerHeight}px`;
 }
 
 function updateCounters() {
@@ -611,8 +593,6 @@ function animate() {
     }
 
     document.getElementById('hp-fill').style.width = playerHP + '%'; document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
-    document.getElementById('base-hp-fill').style.width = playerBaseHP + '%'; document.getElementById('base-hp-text').innerText = 'BLUE BASE: ' + Math.round(playerBaseHP) + '%';
-    document.getElementById('ai-base-hp-fill').style.width = aiBaseHP + '%'; document.getElementById('ai-base-hp-text').innerText = 'RED BASE: ' + Math.round(aiBaseHP) + '%';
     document.getElementById('player-gold').innerText = playerGold;
     
     updateOverheadUI();
@@ -682,8 +662,6 @@ function animate() {
                 sn.currentWaypointIndex++;
                 sn.navState = 'SEEK'; sn.followSteps = 0;
                 if (sn.currentWaypointIndex >= sn.waypoints.length) {
-                    if (sn.isYellowTeam) aiBaseHP = Math.max(0, aiBaseHP - 15);
-                    else playerBaseHP = Math.max(0, playerBaseHP - 15);
                     scene.remove(sn.group); snails.splice(i, 1);
                 }
             }
