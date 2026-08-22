@@ -177,7 +177,7 @@ socket.on('enemyMove', (data) => {
     if (aiGroup) {
         aiGroup.position.set(data.x, data.y, data.z);
         aiGroup.rotation.y = data.yaw;
-        aiGroup.visible = true;
+        aiGroup.visible = true; // Always force visible
     }
 });
 
@@ -214,13 +214,12 @@ socket.on('unitSpawned', (data) => {
     }
 });
 
-// Stun / Freeze handler when hit by a bullet
-socket.on('shipHit', (data) => {
-    let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
-    if (data.targetTeam === opponentTeam) {
-        enemyFrozenUntil = Date.now() + 3000; // Freeze enemy for 3 seconds
-    } else if (data.targetTeam === myTeam) {
-        playerFrozenUntil = Date.now() + 3000; // Freeze local player for 3 seconds
+// Stun/Freeze sync network event
+socket.on('applyStun', (data) => {
+    if (data.team === myTeam) {
+        playerFrozenUntil = Date.now() + 3000;
+    } else {
+        enemyFrozenUntil = Date.now() + 3000;
     }
 });
 
@@ -508,7 +507,7 @@ function calculatePlacementTarget(hit) {
 }
 
 function handlePlacement() {
-    if (Date.now() < playerFrozenUntil) return; // Cannot build while frozen
+    if (Date.now() < playerFrozenUntil) return; 
     raycaster.setFromCamera(mouse, camera); 
     const hits = raycaster.intersectObjects([floor, ...wallMeshes, ...userBlocks], true);
     if (hits.length > 0) {
@@ -527,7 +526,7 @@ function handlePlacement() {
 }
 
 function fireWeapon() {
-    if (Date.now() < playerFrozenUntil) return; // Cannot fire while frozen
+    if (Date.now() < playerFrozenUntil) return; 
     turrets.forEach(t => {
         const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0x0066ff : 0xff3333 })), wp = new THREE.Vector3();
         t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); raycaster.setFromCamera(mouse, camera);
@@ -562,7 +561,7 @@ function initGameWorld() {
     const blueWallXMat = new THREE.MeshBasicMaterial({ map: blueWallXTex, side: THREE.DoubleSide });
 
     wallMeshes = []; const lim = 498;
-    [ { z: -lim, r: 0, mat: redWallZMat, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZTex, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
+    [ { z: -lim, r: 0, mat: redWallZMat, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZMat, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
         const wl = new THREE.Mesh(new THREE.PlaneGeometry(1000, 100), w.mat); 
         if (w.z) wl.position.z = w.z; if (w.x) wl.position.x = w.x; wl.position.y = 50; wl.rotation.y = w.r; wl.userData.wallTheme = w.theme;
         scene.add(wl); wallMeshes.push(wl);
@@ -604,6 +603,8 @@ function initGameWorld() {
     aiGroup = eData.group; 
     let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-430, 0, -430) : new THREE.Vector3(430, 0, 430);
     aiGroup.position.copy(enemyPos); scene.add(aiGroup);
+
+    aiGroup.visible = true; // FORCE ENEMY SHIP VISIBLE
 
     snakeHead = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshBasicMaterial({ color: 0x0088ff })); 
     snakeHead.visible = false; scene.add(snakeHead);
@@ -686,7 +687,6 @@ function updateCounters() {
 function animate() {
     requestAnimationFrame(animate); if (!renderer || !scene || !camera || !gameActive) return;
     
-    // Check if frozen state is active
     let isPlayerFrozen = Date.now() < playerFrozenUntil;
     let isEnemyFrozen = Date.now() < enemyFrozenUntil;
 
@@ -809,7 +809,6 @@ function animate() {
         }
     }
 
-    // Only allow movement if NOT frozen
     if (!isPlayerFrozen) {
         if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); playerGroup.rotation.y = yaw;
         let move = new THREE.Vector3(); if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1; if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
@@ -855,13 +854,15 @@ function animate() {
         if (b.userData.life <= 0) { scene.remove(b); bullets.splice(i, 1); continue; }
 
         let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
-        // If bullet hits opponent, trigger a stun/freeze event on the server
-        if (b.userData.isPlayerBullet && aiGroup && aiGroup.visible && b.position.distanceTo(aiGroup.position) < 4) {
-            socket.emit('shipHit', { targetTeam: opponentTeam, damage: 10 });
+        
+        // Check if player's bullet hits opponent ship
+        if (b.userData.isPlayerBullet && aiGroup && b.position.distanceTo(aiGroup.position) < 4) {
+            socket.emit('shipHit', { targetTeam: opponentTeam });
             b.userData.life = 0;
         }
-        if (!b.userData.isPlayerBullet && playerGroup && playerGroup.visible && b.position.distanceTo(playerGroup.position) < 4) {
-            playerFrozenUntil = Date.now() + 3000; // Local freeze for 3 seconds
+        // Check if opponent's bullet hits local player ship
+        if (!b.userData.isPlayerBullet && playerGroup && b.position.distanceTo(playerGroup.position) < 4) {
+            playerFrozenUntil = Date.now() + 3000;
             b.userData.life = 0;
         }
 
