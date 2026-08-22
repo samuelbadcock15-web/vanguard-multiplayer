@@ -56,7 +56,7 @@
 </div>
 
 <div id="opponent-overhead-ui">
-    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="hp-text-ai" class="hp-text">ENEMY: 100%</div></div>
+    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="ai-text-ai" class="hp-text">ENEMY: 100%</div></div>
 </div>
 
 <div id="ui-layer">
@@ -114,7 +114,7 @@ socket.on('enemyMove', (data) => {
     if (aiGroup) {
         aiGroup.position.set(data.x, data.y, data.z);
         aiGroup.rotation.y = data.yaw;
-        aiGroup.visible = (enemyHP > 0);
+        if (enemyHP > 0) aiGroup.visible = true;
     }
 });
 
@@ -168,13 +168,15 @@ socket.on('shipHealthUpdate', (data) => {
 
 socket.on('shipRespawn', (data) => {
     let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
-    if (data.team === opponentTeam && aiGroup) {
+    if (data.team === opponentTeam) {
         enemyHP = 100;
-        aiGroup.visible = true;
         document.getElementById('ai-hp-fill').style.width = '100%';
         document.getElementById('hp-text-ai').innerText = 'ENEMY: 100%';
         let respawnTarget = (opponentTeam === 'blue') ? new THREE.Vector3(430, 0, 430) : new THREE.Vector3(-430, 0, -430);
-        aiGroup.position.copy(respawnTarget);
+        if (aiGroup) {
+            aiGroup.position.copy(respawnTarget);
+            aiGroup.visible = true;
+        }
     }
 });
 
