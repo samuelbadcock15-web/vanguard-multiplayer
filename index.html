@@ -22,31 +22,35 @@
         .control-details { margin-top: 5px; color: #444; }
         .live-metrics { font-size: 10px; color: #c86400; font-weight: bold; }
         
-        #overhead-ui, #opponent-overhead-ui, .baseman-hud { position: fixed; pointer-events: none; z-index: 50; display: none; flex-direction: column; gap: 2px; align-items: center; transform: translate(-50%, -100%); }
+        #overhead-ui, #opponent-overhead-ui, #blue-base-hud, #red-base-hud { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
         
-        .hp-bar, .hp-bar-ai, .hp-bar-baseman { position: relative; width: 60px; height: 8px; background: rgba(0,0,0,0.6); border: 1px solid #fff; border-radius: 2px; overflow: hidden; box-sizing: border-box; }
-        .hp-bar-ai { border-color: #ff3333; background: rgba(0,0,0,0.6); }
-        .hp-bar-baseman { width: 50px; height: 6px; border-color: #b8860b; }
+        .hp-bar, .hp-bar-ai { position: relative; width: 100px; height: 12px; background: #ccc; border: 1px solid #888; border-radius: 2px; overflow: hidden; box-sizing: border-box; }
+        .hp-bar-ai { width: 100px; border-color: #cc2222; background: #f0c0c0; }
+        #hp-fill { height: 100%; background: #0077ff; transition: width 0.1s; }
+        #base-hp-fill { height: 100%; background: #0044aa; transition: width 0.3s; }
+        #ai-hp-fill { height: 100%; background: #cc2222; transition: width 0.1s; }
+        #ai-base-hp-fill { height: 100%; background: #990000; transition: width 0.3s; }
         
-        #hp-fill { height: 100%; background: #0077ff; }
-        #ai-hp-fill { height: 100%; background: #cc2222; }
-        .baseman-fill { height: 100%; background: #00aa44; }
-        
-        .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 6px; font-weight: bold; text-shadow: 1px 1px 1px #000; z-index: 2; }
+        .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 8px; font-weight: bold; text-shadow: 1px 1px 2px #000; text-transform: uppercase; letter-spacing: 0.5px; z-index: 2; box-sizing: border-box; }
     </style>
 </head>
 <body>
 <div id="cursor-ui"><div class="cursor-v"></div><div class="cursor-h"></div></div>
 
 <div id="overhead-ui">
-    <div class="hp-bar"><div id="hp-fill" style="width: 100%;"></div><div id="hp-text" class="hp-text">100%</div></div>
+    <div class="hp-bar"><div id="hp-fill" style="width: 100%;"></div><div id="hp-text" class="hp-text">VESSEL: 100%</div></div>
 </div>
 
 <div id="opponent-overhead-ui">
-    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="hp-text-ai" class="hp-text">100%</div></div>
+    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="hp-text-ai" class="hp-text">ENEMY: 100%</div></div>
 </div>
 
-<div id="baseman-hud-container"></div>
+<div id="blue-base-hud">
+    <div class="hp-bar"><div id="base-hp-fill" style="width: 100%;"></div><div id="base-hp-text" class="hp-text">BLUE BASE: 100%</div></div>
+</div>
+<div id="red-base-hud">
+    <div class="hp-bar-ai"><div id="ai-base-hp-fill" style="width: 100%;"></div><div id="ai-base-hp-text" class="hp-text">RED BASE: 100%</div></div>
+</div>
 
 <div id="ui-layer">
     <div class="controls">
@@ -60,7 +64,7 @@
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
-            <div style="font-size:9px; color:#555; margin-top:5px;">BLUE BASE HP: <span id="blue-base-hp-display">100</span>% | RED BASE HP: <span id="red-base-hp-display">100</span>%</div>
+            <div style="font-size:9px; color:#555; margin-top:5px;">TARGET: <span id="z-health">DETECTING...</span></div>
         </div>
     </div>
 </div>
@@ -78,14 +82,12 @@ let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08;
 const maxWallGridHeight = 8 * blockSize;
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
-let playerHP = 100, enemyHP = 100, playerBaseHP = 100, redBaseHP = 100, playerGold = 100;
+let playerHP = 100, playerBaseHP = 100, enemyHP = 100, aiBaseHP = 100, playerGold = 100;
 let gameActive = true, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
 let playerSpawnPos = new THREE.Vector3(460, 0, 460);
 let aiGroup, aiSirenL, aiSirenR, aiPointLight, aiTurrets = [];
 let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
-let lastDamageTime = 0; 
-let isInvulnerable = false;
 
 socket.on('roleAssign', (data) => {
     myTeam = data.team;
@@ -133,79 +135,41 @@ socket.on('blockPlaced', (data) => {
 
 socket.on('unitSpawned', (data) => {
     if (data.type === 'snail') {
-        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(465, 0, 465));
-        else spawnRedSnail(new THREE.Vector3(-465, 0, -465));
+        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(460, 0, 460));
+        else spawnRedSnail(new THREE.Vector3(-460, 0, -460));
     }
     if (data.type === 'runner') {
-        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(430, 0, 430));
-        else spawnRedRunner(new THREE.Vector3(-430, 0, -430));
-    }
-});
-
-socket.on('baseDamageUpdate', (data) => {
-    if (data.team === 'blue') {
-        playerBaseHP = data.baseHp;
-        document.getElementById('blue-base-hp-display').innerText = Math.round(playerBaseHP);
-    } else if (data.team === 'red') {
-        redBaseHP = data.baseHp;
-        document.getElementById('red-base-hp-display').innerText = Math.round(redBaseHP);
+        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(490, 0, 490));
+        else spawnRedRunner(new THREE.Vector3(-490, 0, -490));
     }
 });
 
 socket.on('shipHealthUpdate', (data) => {
     let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
     if (data.team === opponentTeam) {
-        enemyHP = Math.max(0, Math.min(100, data.hp));
+        enemyHP = data.hp;
         document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
-        document.getElementById('hp-text-ai').innerText = `${Math.round(enemyHP)}%`;
+        document.getElementById('hp-text-ai').innerText = `ENEMY: ${Math.round(enemyHP)}%`;
     } else if (data.team === myTeam) {
-        playerHP = Math.max(0, Math.min(100, data.hp));
-        document.getElementById('hp-fill').style.width = playerHP + '%';
-        document.getElementById('hp-text').innerText = `${Math.round(playerHP)}%`;
+        playerHP = data.hp;
     }
 });
 
-socket.on('shipDestroyedAndRespawn', (data) => {
-    let targetGroup = (data.team === myTeam) ? playerGroup : aiGroup;
-    let respawnTarget = new THREE.Vector3(data.x, data.y, data.z);
-
-    if (data.team === myTeam) {
-        playerHP = 100;
-        document.getElementById('hp-fill').style.width = '100%';
-        document.getElementById('hp-text').innerText = '100%';
-        isInvulnerable = true;
-    } else {
+socket.on('shipRespawn', (data) => {
+    let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
+    if (data.team === opponentTeam && aiGroup) {
         enemyHP = 100;
-        document.getElementById('ai-hp-fill').style.width = '100%';
-        document.getElementById('hp-text-ai').innerText = '100%';
+        document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
+        document.getElementById('hp-text-ai').innerText = 'ENEMY: 100%';
+        let respawnTarget = (opponentTeam === 'blue') ? new THREE.Vector3(460, 0, 460) : new THREE.Vector3(-460, 0, -460);
+        aiGroup.position.copy(respawnTarget);
     }
+});
 
-    if (targetGroup) {
-        targetGroup.position.copy(respawnTarget);
-        if (data.team === myTeam) {
-            yaw = data.yaw;
-            playerGroup.rotation.y = yaw;
-        }
-        targetGroup.visible = true;
-
-        for (let i = 0; i < 40; i++) {
-            const p = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshBasicMaterial({ color: 0xffaa00 }));
-            p.position.copy(respawnTarget).add(new THREE.Vector3(0, 2, 0));
-            p.userData.velocity = new THREE.Vector3((Math.random()-0.5)*5, Math.random()*5, (Math.random()-0.5)*5);
-            scene.add(p);
-            setTimeout(() => scene.remove(p), 700);
-        }
-
-        let flashCount = 0;
-        let flashInterval = setInterval(() => {
-            targetGroup.visible = !targetGroup.visible;
-            flashCount++;
-            if (flashCount > 10) {
-                clearInterval(flashInterval);
-                targetGroup.visible = true;
-                if (data.team === myTeam) isInvulnerable = false;
-            }
-        }, 120);
+socket.on('playerRespawn', (data) => {
+    if (aiGroup) {
+        aiGroup.position.set(data.x, data.y, data.z);
+        aiGroup.rotation.y = data.yaw;
     }
 });
 
@@ -227,10 +191,16 @@ function canBuildHere(pos, isPlayer) {
 }
 
 class CrimsonStalker {
-    constructor(cHex, sHex, isRedMan=false) {
+    constructor(cHex, sHex, isYBase=false, isRedRun=false, isYRun=false) {
         this.group = new THREE.Group(); this.limbs = {}; this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
         this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0;
-        this.shatterHex = sHex; this.isRedBaseMan = isRedMan;
+        this.shatterHex = sHex; this.isYellowBaseMan = isYBase; this.isRedRunner = isRedRun; this.isYellowRunner = isYRun;
+        
+        this.navState = 'SEEK';
+        this.wallFollowDir = Math.random() > 0.5 ? 1 : -1;
+        this.followSteps = 0;
+        this.startFollowPos = new THREE.Vector3();
+        this.currentHeading = new THREE.Vector3(0, 0, 1);
         
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
         const createPart = (n, w, h, d, y, p) => {
@@ -244,6 +214,7 @@ class CrimsonStalker {
     }
     takeDamage(part, amt, hitPl) {
         if (this.isShattered || !this.limbs[part]) return;
+        if (this.isYellowBaseMan) return; 
         this.health[part] -= (part === 'head' ? amt * 3 : amt);
         const s = Math.max(0.1, this.health[part] / 100); this.limbs[part].scale.set(s, s, s);
         if (this.health.head <= 0 || this.health.torso <= 0) { this.explode(); }
@@ -265,7 +236,7 @@ class CrimsonStalker {
             });
             if (this.shatterTimer > 60) {
                 this.shatterParticles.forEach(p => scene.remove(p)); this.shatterParticles = [];
-                this.reset();
+                if (this.isYellowRunner || this.isRedRunner) this.markedForRemoval = true; else this.reset();
             } return;
         } 
         this.group.lookAt(tPos.x, this.group.position.y, tPos.z);
@@ -336,16 +307,16 @@ function spawnRedSnail(pos) {
 }
 
 function spawnYellowRunner(pos) { 
-    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false); 
+    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460), new THREE.Vector3(-460, 0, -460)]; 
+    r.waypoints = [new THREE.Vector3(490, 0, 490), new THREE.Vector3(-490, 0, 490), new THREE.Vector3(-490, 0, -490)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
 function spawnRedRunner(pos) { 
-    let r = new CrimsonStalker(0xdd3333, 0xdd3333, true); 
+    let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, -460), new THREE.Vector3(460, 0, 460)]; 
+    r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, 490)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
@@ -538,19 +509,8 @@ function initGameWorld() {
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
 
     stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; existingCubes.clear();
-    
-    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, true)); stalkers[0].group.position.set(-490, 0, -490);
-    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, false)); stalkers[1].group.position.set(490, 0, 490);
-
-    const container = document.getElementById('baseman-hud-container');
-    container.innerHTML = '';
-    stalkers.forEach((st, idx) => {
-        let div = document.createElement('div');
-        div.className = 'baseman-hud';
-        div.id = `baseman-hud-${idx}`;
-        div.innerHTML = `<div class="hp-bar-baseman"><div class="baseman-fill" id="baseman-fill-${idx}" style="width:100%;"></div></div>`;
-        container.appendChild(div);
-    });
+    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
+    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
 
     sirenGeo = new THREE.BoxGeometry(0.7, 0.25, 0.5);
     let myColor = myTeam === 'blue' ? 0x0088ff : 0xcc2222;
@@ -614,38 +574,21 @@ function checkCollision(pos) {
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
-    const updateHudPos = (obj, elementId) => {
-        const elem = document.getElementById(elementId);
-        const vPos = new THREE.Vector3(); obj.getWorldPosition(vPos); vPos.y += 2.2;
-        const vector = vPos.clone().project(camera);
-        if (vector.z > 1 || Math.abs(vector.x) > 1.2 || Math.abs(vector.y) > 1.2) {
-            elem.style.display = 'none';
-        } else {
-            elem.style.display = 'flex';
-            elem.style.left = `${(vector.x * .5 + .5) * window.innerWidth}px`; 
-            elem.style.top = `${(-(vector.y * .5) + .5) * window.innerHeight}px`; 
-        }
-    };
+    const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 1.8; wp.project(camera); 
+    document.getElementById('overhead-ui').style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
+    document.getElementById('overhead-ui').style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
 
-    updateHudPos(playerGroup, 'overhead-ui');
-    updateHudPos(aiGroup, 'opponent-overhead-ui');
+    const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); ew.y += 1.8; ew.project(camera); 
+    document.getElementById('opponent-overhead-ui').style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
+    document.getElementById('opponent-overhead-ui').style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
 
-    stalkers.forEach((st, idx) => {
-        if (st && st.group) {
-            const elem = document.getElementById(`baseman-hud-${idx}`);
-            const bp = new THREE.Vector3(); st.group.getWorldPosition(bp); bp.y += 4.5;
-            const vector = bp.clone().project(camera);
-            if (vector.z > 1 || Math.abs(vector.x) > 1.2 || Math.abs(vector.y) > 1.2) {
-                elem.style.display = 'none';
-            } else {
-                elem.style.display = 'flex';
-                elem.style.left = `${(vector.x * .5 + .5) * window.innerWidth}px`;
-                elem.style.top = `${(-(vector.y * .5) + .5) * window.innerHeight}px`;
-                let hpPct = (st.health.torso / 100) * 100;
-                document.getElementById(`baseman-fill-${idx}`).style.width = `${Math.max(0, hpPct)}%`;
-            }
-        }
-    });
+    const bPos = new THREE.Vector3(460, 2, 460); bPos.project(camera);
+    document.getElementById('blue-base-hud').style.left = `${(bPos.x * .5 + .5) * window.innerWidth}px`;
+    document.getElementById('blue-base-hud').style.top = `${(-(bPos.y * .5) + .5) * window.innerHeight}px`;
+
+    const rPos = new THREE.Vector3(-460, 2, -460); rPos.project(camera);
+    document.getElementById('red-base-hud').style.left = `${(rPos.x * .5 + .5) * window.innerWidth}px`;
+    document.getElementById('red-base-hud').style.top = `${(-(rPos.y * .5) + .5) * window.innerHeight}px`;
 }
 
 function updateCounters() {
@@ -658,32 +601,18 @@ function updateCounters() {
 function animate() {
     requestAnimationFrame(animate); if (!renderer || !scene || !camera) return;
     
-    if (playerHP < 100 && Date.now() - lastDamageTime > 4000) {
-        playerHP = Math.min(100, playerHP + 0.15);
-        socket.emit('syncHealth', { team: myTeam, hp: playerHP });
-    }
-
-    if (playerHP <= 0 && !isInvulnerable) {
+    if (playerHP <= 0) {
         playerHP = 100;
         playerGroup.position.copy(playerSpawnPos);
         yaw = (myTeam === 'red') ? -2.356 : 0.785;
         playerGroup.rotation.y = yaw;
-        isInvulnerable = true;
         socket.emit('shipHit', { targetTeam: myTeam, damage: -100 });
-        
-        let flashCount = 0;
-        let flashInterval = setInterval(() => {
-            playerGroup.visible = !playerGroup.visible;
-            flashCount++;
-            if (flashCount > 10) {
-                clearInterval(flashInterval);
-                playerGroup.visible = true;
-                isInvulnerable = false;
-            }
-        }, 150);
+        socket.emit('playerRespawn', { x: playerSpawnPos.x, y: playerSpawnPos.y, z: playerSpawnPos.z, yaw: yaw });
     }
 
-    document.getElementById('hp-fill').style.width = playerHP + '%'; document.getElementById('hp-text').innerText = `${Math.round(playerHP)}%`;
+    document.getElementById('hp-fill').style.width = playerHP + '%'; document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
+    document.getElementById('base-hp-fill').style.width = playerBaseHP + '%'; document.getElementById('base-hp-text').innerText = 'BLUE BASE: ' + Math.round(playerBaseHP) + '%';
+    document.getElementById('ai-base-hp-fill').style.width = aiBaseHP + '%'; document.getElementById('ai-base-hp-text').innerText = 'RED BASE: ' + Math.round(aiBaseHP) + '%';
     document.getElementById('player-gold').innerText = playerGold;
     
     updateOverheadUI();
@@ -695,15 +624,6 @@ function animate() {
         let r = runners[i];
         if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
         
-        let reachedEnemyBase = (r.isYellowRunner && r.group.position.distanceTo(new THREE.Vector3(-460, 0, -460)) < 15) || 
-                               (r.isRedRunner && r.group.position.distanceTo(new THREE.Vector3(460, 0, 460)) < 15);
-        if (reachedEnemyBase) {
-            let targetBaseTeam = r.isYellowRunner ? 'red' : 'blue';
-            socket.emit('damageBase', { team: targetBaseTeam, amount: 5 });
-            r.explode();
-            continue;
-        }
-
         let isEnemyRunner = (myTeam === 'blue' ? !r.isYellowRunner : r.isYellowRunner);
         if (playerGroup.position.distanceTo(r.group.position) < 6.5 && !r.isShattered && isEnemyRunner) {
             r.explode(); playerGold += 1; continue;
@@ -740,15 +660,6 @@ function animate() {
         let sn = snails[i]; 
         if (sn.markedForRemoval) { scene.remove(sn.group); snails.splice(i, 1); continue; }
         
-        let reachedEnemyBase = (sn.isYellowTeam && sn.group.position.distanceTo(new THREE.Vector3(-460, 0, -460)) < 15) || 
-                               (!sn.isYellowTeam && sn.group.position.distanceTo(new THREE.Vector3(460, 0, 460)) < 15);
-        if (reachedEnemyBase) {
-            let targetBaseTeam = sn.isYellowTeam ? 'red' : 'blue';
-            socket.emit('damageBase', { team: targetBaseTeam, amount: 15 });
-            sn.explode();
-            continue;
-        }
-
         let isEnemySnail = (myTeam === 'blue' ? !sn.isYellowTeam : sn.isYellowTeam);
         if (playerGroup.position.distanceTo(sn.group.position) < 7.0 && !sn.isShattered && isEnemySnail) {
             sn.explode(); playerGold += 2; continue;
@@ -771,6 +682,8 @@ function animate() {
                 sn.currentWaypointIndex++;
                 sn.navState = 'SEEK'; sn.followSteps = 0;
                 if (sn.currentWaypointIndex >= sn.waypoints.length) {
+                    if (sn.isYellowTeam) aiBaseHP = Math.max(0, aiBaseHP - 15);
+                    else playerBaseHP = Math.max(0, playerBaseHP - 15);
                     scene.remove(sn.group); snails.splice(i, 1);
                 }
             }
@@ -781,7 +694,7 @@ function animate() {
     let move = new THREE.Vector3(); if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1; if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
     if (move.length() > 0) { 
         move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion); 
-        if(!checkCollision({x: playerGroup.position.x + move.x, y: 0, z: playerGroup.position.z + move.z})) { 
+        if(!checkCollision({x: playerGroup.position.x + move.x, y: 1, z: playerGroup.position.z + move.z})) { 
             playerGroup.position.x += move.x; playerGroup.position.z += move.z; 
         } 
     }
@@ -824,10 +737,8 @@ function animate() {
             socket.emit('shipHit', { targetTeam: opponentTeam, damage: 10 });
             b.userData.life = 0;
         }
-        if (!b.userData.isPlayerBullet && playerGroup && b.position.distanceTo(playerGroup.position) < 4 && !isInvulnerable) {
+        if (!b.userData.isPlayerBullet && playerGroup && b.position.distanceTo(playerGroup.position) < 4) {
             playerHP = Math.max(0, playerHP - 10);
-            lastDamageTime = Date.now();
-            socket.emit('shipHit', { targetTeam: myTeam, damage: 10 });
             b.userData.life = 0;
         }
 
@@ -846,15 +757,12 @@ function animate() {
                 while (curr && curr !== scene) { ent = [...stalkers, ...runners, ...snails].find(s => s.group === curr); if (ent) break; curr = curr.parent; }
                 if (ent) {
                     if (b.userData.isPlayerBullet) {
-                        let isRedMan = (ent === stalkers[0]);
-                        let isBlueMan = (ent === stalkers[1]);
-                        let canShootMan = (myTeam === 'blue' && isBlueMan) || (myTeam === 'red' && isRedMan);
-
-                        if (canShootMan) {
-                            if (playerGold >= 1) {
-                                playerGold -= 1;
-                                socket.emit('spawnUnit', { type: 'runner', team: myTeam });
-                            }
+                        let hitMyBaseMan = (myTeam === 'blue' && ent === stalkers[1]) || (myTeam === 'red' && ent === stalkers[0]);
+                        if (hitMyBaseMan && playerGold >= 1) {
+                            playerGold -= 1;
+                            socket.emit('spawnUnit', { type: 'runner', team: myTeam });
+                        } else if (!ent.isYellowBaseMan && !ent.isBlueBaseMan) {
+                            ent.takeDamage(hObj.userData.partName || 'torso', 50, true);
                         }
                         b.userData.life = 0;
                     }
