@@ -44,7 +44,7 @@
 </div>
 
 <div id="opponent-overhead-ui">
-    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="ai-text-ai" class="hp-text">ENEMY: 100%</div></div>
+    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="hp-text-ai" class="hp-text">ENEMY: 100%</div></div>
 </div>
 
 <div id="red-baseman-hud">
@@ -88,7 +88,7 @@ const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
 let playerHP = 100, playerBaseHP = 100, enemyHP = 100, aiBaseHP = 100, playerGold = 100;
 let gameActive = true, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
-let playerSpawnPos = new THREE.Vector3(430, 0, 430); // Spawned just in front of the snail pad (465, 465)
+let playerSpawnPos = new THREE.Vector3(460, 0, 460);
 let aiGroup, aiSirenL, aiSirenR, aiPointLight, aiTurrets = [];
 let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
 
@@ -96,10 +96,10 @@ socket.on('roleAssign', (data) => {
     myTeam = data.team;
     document.getElementById('player-role-label').innerText = `${myTeam.toUpperCase()} COMMANDER: ONLINE`;
     if (myTeam === 'red') {
-        playerSpawnPos.set(-430, 0, -430);
+        playerSpawnPos.set(-460, 0, -460);
         yaw = -2.356;
     } else {
-        playerSpawnPos.set(430, 0, 430);
+        playerSpawnPos.set(460, 0, 460);
         yaw = 0.785;
     }
     if (scene) {
@@ -138,12 +138,12 @@ socket.on('blockPlaced', (data) => {
 
 socket.on('unitSpawned', (data) => {
     if (data.type === 'snail') {
-        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(465, 0, 465));
-        else spawnRedSnail(new THREE.Vector3(-465, 0, -465));
+        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(460, 0, 460));
+        else spawnRedSnail(new THREE.Vector3(-460, 0, -460));
     }
     if (data.type === 'runner') {
-        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(430, 0, 430));
-        else spawnRedRunner(new THREE.Vector3(-430, 0, -430));
+        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(490, 0, 490));
+        else spawnRedRunner(new THREE.Vector3(-490, 0, -490));
     }
 });
 
@@ -164,7 +164,7 @@ socket.on('shipRespawn', (data) => {
         enemyHP = 100;
         document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
         document.getElementById('hp-text-ai').innerText = 'ENEMY: 100%';
-        let respawnTarget = (opponentTeam === 'blue') ? new THREE.Vector3(430, 0, 430) : new THREE.Vector3(-430, 0, -430);
+        let respawnTarget = (opponentTeam === 'blue') ? new THREE.Vector3(460, 0, 460) : new THREE.Vector3(-460, 0, -460);
         aiGroup.position.copy(respawnTarget);
     }
 });
@@ -297,7 +297,7 @@ function spawnYellowSnail(pos) {
     playerSnailsSpawned++; 
     let sn = new CrimsonSnail(0x0077ff, true); 
     sn.group.position.copy(pos); 
-    sn.waypoints = [new THREE.Vector3(465, 0, 465), new THREE.Vector3(-465, 0, -465)]; 
+    sn.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460)]; 
     snails.push(sn); 
 }
 
@@ -305,21 +305,21 @@ function spawnRedSnail(pos) {
     aiSnailsSpawned++; 
     let sn = new CrimsonSnail(0xcc2222, false); 
     sn.group.position.copy(pos); 
-    sn.waypoints = [new THREE.Vector3(-465, 0, -465), new THREE.Vector3(465, 0, 465)]; 
+    sn.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, 460)]; 
     snails.push(sn); 
 }
 
 function spawnYellowRunner(pos) { 
     let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(430, 0, 430), new THREE.Vector3(-430, 0, 430), new THREE.Vector3(-430, 0, -430)]; 
+    r.waypoints = [new THREE.Vector3(490, 0, 490), new THREE.Vector3(-490, 0, 490), new THREE.Vector3(-490, 0, -490)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
 function spawnRedRunner(pos) { 
     let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(-430, 0, -430), new THREE.Vector3(430, 0, -430), new THREE.Vector3(430, 0, 430)]; 
+    r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, 490)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
@@ -525,7 +525,7 @@ function initGameWorld() {
     let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
     let eData = createShip(enemyColor); 
     aiGroup = eData.group; 
-    let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-430, 0, -430) : new THREE.Vector3(430, 0, 430);
+    let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
     aiGroup.position.copy(enemyPos); scene.add(aiGroup);
 
     snakeHead = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshBasicMaterial({ color: 0x0088ff })); 
@@ -683,7 +683,7 @@ function animate() {
                 if (r.limbs['lArm']) r.limbs['lArm'].rotation.x = Math.sin(t) * 0.6;
                 if (r.limbs['rArm']) r.limbs['rArm'].rotation.x = -Math.sin(t) * 0.6;
                 if (r.limbs['lLeg']) r.limbs['lLeg'].rotation.x = -Math.sin(t) * 0.6;
-                if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = -Math.sin(t) * 0.6;
+                if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = Math.sin(t) * 0.6;
             }
             
             if (r.group.position.distanceTo(tar) < 14) {
