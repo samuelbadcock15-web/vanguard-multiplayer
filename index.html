@@ -22,15 +22,15 @@
         .control-details { margin-top: 5px; color: #444; }
         .live-metrics { font-size: 10px; color: #c86400; font-weight: bold; }
         
-        #overhead-ui, #opponent-overhead-ui, #blue-base-hud, #red-base-hud { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); display: none; }
+        #overhead-ui, #opponent-overhead-ui, #blue-base-hud, #red-base-hud { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
         
         .hp-bar, .hp-bar-ai { position: relative; width: 100px; height: 12px; background: #ccc; border: 1px solid #888; border-radius: 2px; overflow: hidden; box-sizing: border-box; }
         .hp-bar-ai { width: 100px; border-color: #cc2222; background: #f0c0c0; }
         
         #hp-fill { height: 100%; background: #0077ff; transition: width 0.1s; }
-        #base-hp-fill { height: 100%; background: #0044aa; transition: width 0.3s; }
+        #base-hp-fill { height: 100%; background: #0044aa; transition: width 0.1s; }
         #ai-hp-fill { height: 100%; background: #cc2222; transition: width 0.1s; }
-        #ai-base-hp-fill { height: 100%; background: #990000; transition: width 0.3s; }
+        #ai-base-hp-fill { height: 100%; background: #cc2222; transition: width 0.1s; }
         
         .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 8px; font-weight: bold; text-shadow: 1px 1px 2px #000; text-transform: uppercase; letter-spacing: 0.5px; z-index: 2; box-sizing: border-box; }
     </style>
@@ -43,7 +43,7 @@
 </div>
 
 <div id="opponent-overhead-ui">
-    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="ai-text-ai" class="hp-text">ENEMY: 100%</div></div>
+    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="hp-text-ai" class="hp-text">ENEMY: 100%</div></div>
 </div>
 
 <div id="blue-base-hud">
@@ -65,7 +65,7 @@
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
-            <div style="font-size:9px; color:#555; margin-top:5px;">BLUE: <span id="blue-base-display">100</span>% | RED: <span id="red-base-display">100</span>%</div>
+            <div style="font-size:9px; color:#555; margin-top:5px;">BLUE BASE: <span id="blue-base-display">100</span>% | RED BASE: <span id="red-base-display">100</span>%</div>
         </div>
     </div>
 </div>
@@ -148,11 +148,13 @@ socket.on('unitSpawned', (data) => {
 socket.on('shipHealthUpdate', (data) => {
     let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
     if (data.team === opponentTeam) {
-        enemyHP = data.hp;
+        enemyHP = Math.max(0, Math.min(100, data.hp));
         document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
         document.getElementById('hp-text-ai').innerText = `ENEMY: ${Math.round(enemyHP)}%`;
     } else if (data.team === myTeam) {
-        playerHP = data.hp;
+        playerHP = Math.max(0, Math.min(100, data.hp));
+        document.getElementById('hp-fill').style.width = playerHP + '%';
+        document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
     }
 });
 
@@ -160,7 +162,8 @@ socket.on('shipRespawn', (data) => {
     let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
     if (data.team === opponentTeam && aiGroup) {
         enemyHP = 100;
-        document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
+        aiGroup.visible = true;
+        document.getElementById('ai-hp-fill').style.width = '100%';
         document.getElementById('hp-text-ai').innerText = 'ENEMY: 100%';
         let respawnTarget = (opponentTeam === 'blue') ? new THREE.Vector3(430, 0, 430) : new THREE.Vector3(-430, 0, -430);
         aiGroup.position.copy(respawnTarget);
@@ -295,7 +298,7 @@ function spawnYellowSnail(pos) {
     playerSnailsSpawned++; 
     let sn = new CrimsonSnail(0x0077ff, true); 
     sn.group.position.copy(pos); 
-    sn.waypoints = [new THREE.Vector3(-460, 0, -460)]; 
+    sn.waypoints = [new THREE.Vector3(-465, 0, -465)]; 
     snails.push(sn); 
 }
 
@@ -303,21 +306,21 @@ function spawnRedSnail(pos) {
     aiSnailsSpawned++; 
     let sn = new CrimsonSnail(0xcc2222, false); 
     sn.group.position.copy(pos); 
-    sn.waypoints = [new THREE.Vector3(460, 0, 460)]; 
+    sn.waypoints = [new THREE.Vector3(465, 0, 465)]; 
     snails.push(sn); 
 }
 
 function spawnYellowRunner(pos) { 
     let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(-460, 0, -460)]; 
+    r.waypoints = [new THREE.Vector3(490, 0, 490), new THREE.Vector3(490, 0, -490), new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-465, 0, -465)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
 function spawnRedRunner(pos) { 
     let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(460, 0, 460)]; 
+    r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, 490), new THREE.Vector3(490, 0, 490), new THREE.Vector3(465, 0, 465)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
@@ -497,7 +500,7 @@ function initGameWorld() {
     const blueWallXMat = new THREE.MeshBasicMaterial({ map: blueWallXTex, side: THREE.DoubleSide });
 
     wallMeshes = []; const lim = 498;
-    [ { z: -lim, r: 0, mat: redWallZMat, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZMat, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
+    [ { z: -lim, r: 0, mat: redWallZTex, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZTex, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
         const wl = new THREE.Mesh(new THREE.PlaneGeometry(1000, 100), w.mat); 
         if (w.z) wl.position.z = w.z; if (w.x) wl.position.x = w.x; wl.position.y = 50; wl.rotation.y = w.r; wl.userData.wallTheme = w.theme;
         scene.add(wl); wallMeshes.push(wl);
@@ -510,8 +513,8 @@ function initGameWorld() {
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
 
     stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; existingCubes.clear();
-    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-460, 0, -460);
-    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(460, 0, 460);
+    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
+    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
 
     sirenGeo = new THREE.BoxGeometry(0.7, 0.25, 0.5);
     let myColor = myTeam === 'blue' ? 0x0088ff : 0xcc2222;
@@ -595,7 +598,7 @@ function updateOverheadUI() {
         eUi.style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
     }
 
-    const bPos = new THREE.Vector3(460, 2, 460); bPos.project(camera);
+    const bPos = new THREE.Vector3(465, 2, 465); bPos.project(camera);
     const bHud = document.getElementById('blue-base-hud');
     if (bPos.z > 1 || Math.abs(bPos.x) > 1.2 || Math.abs(bPos.y) > 1.2) {
         bHud.style.display = 'none';
@@ -605,7 +608,7 @@ function updateOverheadUI() {
         bHud.style.top = `${(-(bPos.y * .5) + .5) * window.innerHeight}px`;
     }
 
-    const rPos = new THREE.Vector3(-460, 2, -460); rPos.project(camera);
+    const rPos = new THREE.Vector3(-465, 2, -465); rPos.project(camera);
     const rHud = document.getElementById('red-base-hud');
     if (rPos.z > 1 || Math.abs(rPos.x) > 1.2 || Math.abs(rPos.y) > 1.2) {
         rHud.style.display = 'none';
@@ -651,8 +654,8 @@ function animate() {
         let r = runners[i];
         if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
         
-        let targetBasePos = r.isYellowRunner ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
-        let reachedEnemyBase = r.group.position.distanceTo(targetBasePos) < 18;
+        let targetBasePos = r.isYellowRunner ? new THREE.Vector3(-465, 0, -465) : new THREE.Vector3(465, 0, 465);
+        let reachedEnemyBase = r.group.position.distanceTo(targetBasePos) < 12;
         if (reachedEnemyBase) {
             let targetBaseTeam = r.isYellowRunner ? 'red' : 'blue';
             if (targetBaseTeam === 'red') redBaseHP = Math.max(0, redBaseHP - 5);
@@ -683,11 +686,11 @@ function animate() {
                 if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = Math.sin(t) * 0.6;
             }
             
-            if (r.group.position.distanceTo(tar) < 16) {
+            if (r.group.position.distanceTo(tar) < 14) {
                 r.currentWaypointIndex++;
                 r.navState = 'SEEK'; r.followSteps = 0;
                 if (r.currentWaypointIndex >= r.waypoints.length) {
-                    r.waypoints.push(targetBasePos);
+                    r.currentWaypointIndex = r.waypoints.length - 1;
                 }
             }
         } else { r.update(playerGroup.position); }
@@ -697,8 +700,8 @@ function animate() {
         let sn = snails[i]; 
         if (sn.markedForRemoval) { scene.remove(sn.group); snails.splice(i, 1); continue; }
         
-        let targetBasePos = sn.isYellowTeam ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
-        let reachedEnemyBase = sn.group.position.distanceTo(targetBasePos) < 18;
+        let targetBasePos = sn.isYellowTeam ? new THREE.Vector3(-465, 0, -465) : new THREE.Vector3(465, 0, 465);
+        let reachedEnemyBase = sn.group.position.distanceTo(targetBasePos) < 12;
         if (reachedEnemyBase) {
             let targetBaseTeam = sn.isYellowTeam ? 'red' : 'blue';
             if (targetBaseTeam === 'red') redBaseHP = Math.max(0, redBaseHP - 15);
@@ -725,11 +728,11 @@ function animate() {
                 sn.group.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
             }
             
-            if (sn.group.position.distanceTo(tar) < 16) {
+            if (sn.group.position.distanceTo(tar) < 14) {
                 sn.currentWaypointIndex++;
                 sn.navState = 'SEEK'; sn.followSteps = 0;
                 if (sn.currentWaypointIndex >= sn.waypoints.length) {
-                    sn.waypoints.push(targetBasePos);
+                    sn.currentWaypointIndex = sn.waypoints.length - 1;
                 }
             }
         }
