@@ -44,7 +44,7 @@
 </div>
 
 <div id="opponent-overhead-ui">
-    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="ai-text-ai" class="hp-text">ENEMY: 100%</div></div>
+    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="hp-text-ai" class="hp-text">ENEMY: 100%</div></div>
 </div>
 
 <div id="ui-layer">
@@ -80,7 +80,7 @@ const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
 let playerHP = 100, playerBaseHP = 100, enemyHP = 100, aiBaseHP = 100, playerGold = 100;
 let gameActive = true, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
-let playerSpawnPos = new THREE.Vector3(460, 0, 460);
+let playerSpawnPos = new THREE.Vector3(430, 0, 430);
 let aiGroup, aiSirenL, aiSirenR, aiPointLight, aiTurrets = [];
 let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
 
@@ -88,10 +88,10 @@ socket.on('roleAssign', (data) => {
     myTeam = data.team;
     document.getElementById('player-role-label').innerText = `${myTeam.toUpperCase()} COMMANDER: ONLINE`;
     if (myTeam === 'red') {
-        playerSpawnPos.set(-460, 0, -460);
+        playerSpawnPos.set(-430, 0, -430);
         yaw = -2.356;
     } else {
-        playerSpawnPos.set(460, 0, 460);
+        playerSpawnPos.set(430, 0, 430);
         yaw = 0.785;
     }
     if (scene) {
@@ -103,7 +103,6 @@ socket.on('enemyMove', (data) => {
     if (aiGroup) {
         aiGroup.position.set(data.x, data.y, data.z);
         aiGroup.rotation.y = data.yaw;
-        aiGroup.visible = true;
     }
 });
 
@@ -143,11 +142,13 @@ socket.on('unitSpawned', (data) => {
 socket.on('shipHealthUpdate', (data) => {
     let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
     if (data.team === opponentTeam) {
-        enemyHP = Math.max(0, Math.min(100, data.hp));
+        enemyHP = data.hp;
         document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
         document.getElementById('hp-text-ai').innerText = `ENEMY: ${Math.round(enemyHP)}%`;
     } else if (data.team === myTeam) {
-        playerHP = Math.max(0, Math.min(100, data.hp));
+        playerHP = data.hp;
+        document.getElementById('hp-fill').style.width = playerHP + '%';
+        document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
     }
 });
 
@@ -155,8 +156,7 @@ socket.on('shipRespawn', (data) => {
     let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
     if (data.team === opponentTeam && aiGroup) {
         enemyHP = 100;
-        aiGroup.visible = true;
-        document.getElementById('ai-hp-fill').style.width = '100%';
+        document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
         document.getElementById('hp-text-ai').innerText = 'ENEMY: 100%';
         let respawnTarget = (opponentTeam === 'blue') ? new THREE.Vector3(430, 0, 430) : new THREE.Vector3(-430, 0, -430);
         aiGroup.position.copy(respawnTarget);
@@ -167,7 +167,6 @@ socket.on('playerRespawn', (data) => {
     if (aiGroup) {
         aiGroup.position.set(data.x, data.y, data.z);
         aiGroup.rotation.y = data.yaw;
-        aiGroup.visible = true;
     }
 });
 
@@ -520,7 +519,7 @@ function initGameWorld() {
     let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
     let eData = createShip(enemyColor); 
     aiGroup = eData.group; 
-    let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-430, 0, -430) : new THREE.Vector3(430, 0, 430);
+    let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
     aiGroup.position.copy(enemyPos); scene.add(aiGroup);
 
     snakeHead = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshBasicMaterial({ color: 0x0088ff })); 
