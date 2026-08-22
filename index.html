@@ -43,7 +43,7 @@
 </div>
 
 <div id="opponent-overhead-ui">
-    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="ai-text-ai" class="hp-text">100%</div></div>
+    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="hp-text-ai" class="hp-text">100%</div></div>
 </div>
 
 <div id="baseman-hud-container"></div>
@@ -338,7 +338,7 @@ function spawnRedSnail(pos) {
 function spawnYellowRunner(pos) { 
     let r = new CrimsonStalker(0x0088ff, 0x0088ff, false); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, 460), new THREE.Vector3(-460, 0, -460)]; 
+    r.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460), new THREE.Vector3(-460, 0, -460)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
