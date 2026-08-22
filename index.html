@@ -33,10 +33,26 @@
         #ai-base-hp-fill { height: 100%; background: #cc2222; transition: width 0.1s; }
         
         .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 8px; font-weight: bold; text-shadow: 1px 1px 2px #000; text-transform: uppercase; letter-spacing: 0.5px; z-index: 2; box-sizing: border-box; }
+
+        /* Game Over Stats Overlay */
+        #game-over-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.82); z-index: 1000; display: none; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-family: monospace; text-transform: uppercase; }
+        .game-over-box { background: #111; border: 3px solid #0088ff; padding: 30px; border-radius: 6px; text-align: center; box-shadow: 0 0 30px rgba(0,136,255,0.5); min-width: 320px; }
+        .game-over-box h1 { font-size: 24px; margin-bottom: 10px; color: #00ff88; }
+        .game-over-box p { font-size: 12px; color: #aaa; margin-bottom: 20px; line-height: 1.5; }
+        .restart-btn { background: #0088ff; color: #fff; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; font-family: monospace; border-radius: 4px; font-size: 12px; }
+        .restart-btn:hover { background: #0055cc; }
     </style>
 </head>
 <body>
 <div id="cursor-ui"><div class="cursor-v"></div><div class="cursor-h"></div></div>
+
+<div id="game-over-screen">
+    <div class="game-over-box">
+        <h1 id="winner-announcement">GAME OVER</h1>
+        <p id="match-stats">ANALYZING COMBAT DATA...</p>
+        <button class="restart-btn" onclick="location.reload()">RELOAD ARENA</button>
+    </div>
+</div>
 
 <div id="overhead-ui">
     <div class="hp-bar"><div id="hp-fill" style="width: 100%;"></div><div id="hp-text" class="hp-text">VESSEL: 100%</div></div>
@@ -61,7 +77,7 @@
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
-                [W/A/S/D] MOVE | [MOUSE] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!
+                [W/A/S/D] MOVE | [MOUSE] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!<br><span style="color:#00aa44;">FIRE FROM LEFT OF RECRUITMENT LANE ONLY!</span>
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
@@ -176,6 +192,18 @@ socket.on('playerRespawn', (data) => {
         aiGroup.rotation.y = data.yaw;
     }
 });
+
+socket.on('playerLeft', (data) => {
+    triggerGameOver("OPPONENT DISCONNECTED", "THE ENEMY COMMANDER HAS ABANDONED THE ARENA.");
+});
+
+function triggerGameOver(title, desc) {
+    if (!gameActive) return;
+    gameActive = false;
+    document.getElementById('winner-announcement').innerText = title;
+    document.getElementById('match-stats').innerText = `${desc}\n\nFINAL STATS:\nBLUE BASE: ${Math.round(playerBaseHP)}% | RED BASE: ${Math.round(redBaseHP)}%\nSNAILS SPAWNED: ${playerSnailsSpawned}`;
+    document.getElementById('game-over-screen').style.display = 'flex';
+}
 
 function toggleControls() { const p = document.getElementById('control-panel'); p.style.display = p.style.display === 'none' ? 'block' : 'none'; }
 
@@ -500,7 +528,7 @@ function initGameWorld() {
     const blueWallXMat = new THREE.MeshBasicMaterial({ map: blueWallXTex, side: THREE.DoubleSide });
 
     wallMeshes = []; const lim = 498;
-    [ { z: -lim, r: 0, mat: redWallZTex, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZTex, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
+    [ { z: -lim, r: 0, mat: redWallZMat, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZMat, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
         const wl = new THREE.Mesh(new THREE.PlaneGeometry(1000, 100), w.mat); 
         if (w.z) wl.position.z = w.z; if (w.x) wl.position.x = w.x; wl.position.y = 50; wl.rotation.y = w.r; wl.userData.wallTheme = w.theme;
         scene.add(wl); wallMeshes.push(wl);
@@ -512,9 +540,24 @@ function initGameWorld() {
     enemyPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 1.0, metalness: 0.0 })); 
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
 
+    // Floor firing lane / recruitment lane markers pointing safely away from stalker spawn
+    const laneMarkerGeo = new THREE.PlaneGeometry(6, 30);
+    const blueLaneMat = new THREE.MeshBasicMaterial({ color: 0x00aaff, side: THREE.DoubleSide, transparent: true, opacity: 0.6 });
+    const redLaneMat = new THREE.MeshBasicMaterial({ color: 0xff3333, side: THREE.DoubleSide, transparent: true, opacity: 0.6 });
+    
+    const blueLane = new THREE.Mesh(laneMarkerGeo, blueLaneMat);
+    blueLane.rotation.x = -Math.PI / 2;
+    blueLane.position.set(430, 0.25, 465);
+    scene.add(blueLane);
+
+    const redLane = new THREE.Mesh(laneMarkerGeo, redLaneMat);
+    redLane.rotation.x = -Math.PI / 2;
+    redLane.position.set(-430, 0.25, -465);
+    scene.add(redLane);
+
     stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; existingCubes.clear();
-    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
-    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
+    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-460, 0, -460);
+    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(460, 0, 460);
 
     sirenGeo = new THREE.BoxGeometry(0.7, 0.25, 0.5);
     let myColor = myTeam === 'blue' ? 0x0088ff : 0xcc2222;
@@ -627,7 +670,7 @@ function updateCounters() {
 }
 
 function animate() {
-    requestAnimationFrame(animate); if (!renderer || !scene || !camera) return;
+    requestAnimationFrame(animate); if (!renderer || !scene || !camera || !gameActive) return;
     
     if (playerHP <= 0) {
         playerHP = 100;
@@ -636,6 +679,13 @@ function animate() {
         playerGroup.rotation.y = yaw;
         socket.emit('shipHit', { targetTeam: myTeam, damage: -100 });
         socket.emit('playerRespawn', { x: playerSpawnPos.x, y: playerSpawnPos.y, z: playerSpawnPos.z, yaw: yaw });
+    }
+
+    // Check Win/Loss conditions
+    if (playerBaseHP <= 0) {
+        triggerGameOver("RED TEAM WINS!", "YOUR BASE HAS BEEN DESTROYED.");
+    } else if (redBaseHP <= 0) {
+        triggerGameOver("BLUE TEAM WINS!", "ENEMY BASE HAS BEEN ANNIHILATED.");
     }
 
     document.getElementById('hp-fill').style.width = playerHP + '%'; document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
@@ -655,7 +705,7 @@ function animate() {
         if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
         
         let targetBasePos = r.isYellowRunner ? new THREE.Vector3(-465, 0, -465) : new THREE.Vector3(465, 0, 465);
-        let reachedEnemyBase = r.group.position.distanceTo(targetBasePos) < 12;
+        let reachedEnemyBase = r.group.position.distanceTo(targetBasePos) < 14;
         if (reachedEnemyBase) {
             let targetBaseTeam = r.isYellowRunner ? 'red' : 'blue';
             if (targetBaseTeam === 'red') redBaseHP = Math.max(0, redBaseHP - 5);
@@ -686,11 +736,11 @@ function animate() {
                 if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = Math.sin(t) * 0.6;
             }
             
-            if (r.group.position.distanceTo(tar) < 14) {
+            if (r.group.position.distanceTo(tar) < 16) {
                 r.currentWaypointIndex++;
                 r.navState = 'SEEK'; r.followSteps = 0;
                 if (r.currentWaypointIndex >= r.waypoints.length) {
-                    r.currentWaypointIndex = r.waypoints.length - 1;
+                    r.waypoints.push(targetBasePos);
                 }
             }
         } else { r.update(playerGroup.position); }
@@ -701,7 +751,7 @@ function animate() {
         if (sn.markedForRemoval) { scene.remove(sn.group); snails.splice(i, 1); continue; }
         
         let targetBasePos = sn.isYellowTeam ? new THREE.Vector3(-465, 0, -465) : new THREE.Vector3(465, 0, 465);
-        let reachedEnemyBase = sn.group.position.distanceTo(targetBasePos) < 12;
+        let reachedEnemyBase = sn.group.position.distanceTo(targetBasePos) < 14;
         if (reachedEnemyBase) {
             let targetBaseTeam = sn.isYellowTeam ? 'red' : 'blue';
             if (targetBaseTeam === 'red') redBaseHP = Math.max(0, redBaseHP - 15);
@@ -728,11 +778,11 @@ function animate() {
                 sn.group.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
             }
             
-            if (sn.group.position.distanceTo(tar) < 14) {
+            if (sn.group.position.distanceTo(tar) < 16) {
                 sn.currentWaypointIndex++;
-                sn.navState = 'SEEK'; sn.followSteps = 0;
+                r.navState = 'SEEK'; r.followSteps = 0;
                 if (sn.currentWaypointIndex >= sn.waypoints.length) {
-                    sn.currentWaypointIndex = sn.waypoints.length - 1;
+                    sn.waypoints.push(targetBasePos);
                 }
             }
         }
