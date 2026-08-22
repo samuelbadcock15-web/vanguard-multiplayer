@@ -13,6 +13,7 @@ let players = {};
 let blueSocketId = null;
 let redSocketId = null;
 
+// Authoritative game state tracking bases and vessels
 let gameState = {
     blue: { hp: 100, baseHp: 100 },
     red: { hp: 100, baseHp: 100 }
@@ -23,10 +24,12 @@ io.on('connection', (socket) => {
         blueSocketId = socket.id;
         players[socket.id] = { team: 'blue' };
         socket.emit('roleAssign', { team: 'blue' });
+        console.log(`Blue Commander connected: ${socket.id}`);
     } else if (!redSocketId) {
         redSocketId = socket.id;
         players[socket.id] = { team: 'red' };
         socket.emit('roleAssign', { team: 'red' });
+        console.log(`Red Commander connected: ${socket.id}`);
     } else {
         players[socket.id] = { team: 'spectator' };
         socket.emit('roleAssign', { team: 'spectator' });
@@ -48,14 +51,16 @@ io.on('connection', (socket) => {
         io.emit('unitSpawned', data);
     });
 
+    // Synchronize Base Damage when units breach a base
     socket.on('damageBase', (data) => {
-        let targetTeam = data.team;
+        let targetTeam = data.team; // 'blue' or 'red' base
         if (gameState[targetTeam]) {
             gameState[targetTeam].baseHp = Math.max(0, gameState[targetTeam].baseHp - data.amount);
             io.emit('baseDamageUpdate', { team: targetTeam, baseHp: gameState[targetTeam].baseHp });
         }
     });
 
+    // Authoritative Craft Hit & Tactical Respawn Sync
     socket.on('shipHit', (data) => {
         let targetTeam = data.targetTeam;
         if (gameState[targetTeam]) {
