@@ -81,7 +81,7 @@ const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
 let playerHP = 100, enemyHP = 100, playerBaseHP = 100, redBaseHP = 100, playerGold = 100;
 let gameActive = true, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
-let playerSpawnPos = new THREE.Vector3(460, 0, 460); // Back to flush ground height (y = 0)
+let playerSpawnPos = new THREE.Vector3(430, 0, 430);
 let aiGroup, aiSirenL, aiSirenR, aiPointLight, aiTurrets = [];
 let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
 let lastDamageTime = 0; 
@@ -91,10 +91,10 @@ socket.on('roleAssign', (data) => {
     myTeam = data.team;
     document.getElementById('player-role-label').innerText = `${myTeam.toUpperCase()} COMMANDER: ONLINE`;
     if (myTeam === 'red') {
-        playerSpawnPos.set(-460, 0, -460);
+        playerSpawnPos.set(-430, 0, -430);
         yaw = -2.356;
     } else {
-        playerSpawnPos.set(460, 0, 460);
+        playerSpawnPos.set(430, 0, 430);
         yaw = 0.785;
     }
     if (scene) {
@@ -106,7 +106,6 @@ socket.on('enemyMove', (data) => {
     if (aiGroup) {
         aiGroup.position.set(data.x, data.y, data.z);
         aiGroup.rotation.y = data.yaw;
-        aiGroup.visible = true;
     }
 });
 
@@ -134,12 +133,12 @@ socket.on('blockPlaced', (data) => {
 
 socket.on('unitSpawned', (data) => {
     if (data.type === 'snail') {
-        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(460, 0, 460));
-        else spawnRedSnail(new THREE.Vector3(-460, 0, -460));
+        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(430, 0, 430));
+        else spawnRedSnail(new THREE.Vector3(-430, 0, -430));
     }
     if (data.type === 'runner') {
-        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(490, 0, 490));
-        else spawnRedRunner(new THREE.Vector3(-490, 0, -490));
+        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(460, 0, 460));
+        else spawnRedRunner(new THREE.Vector3(-460, 0, -460));
     }
 });
 
@@ -540,8 +539,6 @@ function initGameWorld() {
 
     stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; existingCubes.clear();
     
-    // Index 0: Red Base Man (-490, 0, -490) -> isRedMan = true
-    // Index 1: Blue Base Man (490, 0, 490) -> isRedMan = false
     stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, true)); stalkers[0].group.position.set(-490, 0, -490);
     stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, false)); stalkers[1].group.position.set(490, 0, 490);
 
@@ -849,20 +846,17 @@ function animate() {
                 while (curr && curr !== scene) { ent = [...stalkers, ...runners, ...snails].find(s => s.group === curr); if (ent) break; curr = curr.parent; }
                 if (ent) {
                     if (b.userData.isPlayerBullet) {
-                        // Index 0: Red Base Man (-490), Index 1: Blue Base Man (490)
                         let isRedMan = (ent === stalkers[0]);
                         let isBlueMan = (ent === stalkers[1]);
-                        
-                        // Strict check: Blue commander can ONLY shoot Blue base man; Red commander can ONLY shoot Red base man
                         let canShootMan = (myTeam === 'blue' && isBlueMan) || (myTeam === 'red' && isRedMan);
 
-                        if (canShootMan && playerGold >= 1) {
-                            playerGold -= 1;
-                            socket.emit('spawnUnit', { type: 'runner', team: myTeam });
-                            b.userData.life = 0;
-                        } else {
-                            b.userData.life = 0; // Prevent friendly fire or enemy base man shooting
+                        if (canShootMan) {
+                            if (playerGold >= 1) {
+                                playerGold -= 1;
+                                socket.emit('spawnUnit', { type: 'runner', team: myTeam });
+                            }
                         }
+                        b.userData.life = 0;
                     }
                 } else if (hObj !== floor) {
                     let r = hObj; while(r.parent && r.parent !== scene) r = r.parent;
