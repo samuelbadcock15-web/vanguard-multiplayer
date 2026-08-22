@@ -133,12 +133,12 @@ socket.on('blockPlaced', (data) => {
 
 socket.on('unitSpawned', (data) => {
     if (data.type === 'snail') {
-        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(465, 0, 465));
-        else spawnRedSnail(new THREE.Vector3(-465, 0, -465));
+        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(460, 0, 460));
+        else spawnRedSnail(new THREE.Vector3(-460, 0, -460));
     }
     if (data.type === 'runner') {
-        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(430, 0, 430));
-        else spawnRedRunner(new THREE.Vector3(-430, 0, -430));
+        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(490, 0, 490));
+        else spawnRedRunner(new THREE.Vector3(-490, 0, -490));
     }
 });
 
@@ -227,10 +227,10 @@ function canBuildHere(pos, isPlayer) {
 }
 
 class CrimsonStalker {
-    constructor(cHex, sHex, isRedMan=false) {
+    constructor(cHex, sHex, isYBase=false) {
         this.group = new THREE.Group(); this.limbs = {}; this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
         this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0;
-        this.shatterHex = sHex; this.isRedBaseMan = isRedMan;
+        this.shatterHex = sHex; this.isYellowBaseMan = isYBase;
         
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
         const createPart = (n, w, h, d, y, p) => {
@@ -244,6 +244,7 @@ class CrimsonStalker {
     }
     takeDamage(part, amt, hitPl) {
         if (this.isShattered || !this.limbs[part]) return;
+        if (this.isYellowBaseMan) return; 
         this.health[part] -= (part === 'head' ? amt * 3 : amt);
         const s = Math.max(0.1, this.health[part] / 100); this.limbs[part].scale.set(s, s, s);
         if (this.health.head <= 0 || this.health.torso <= 0) { this.explode(); }
@@ -336,16 +337,16 @@ function spawnRedSnail(pos) {
 }
 
 function spawnYellowRunner(pos) { 
-    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false); 
+    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, 460), new THREE.Vector3(-460, 0, -460)]; 
+    r.waypoints = [new THREE.Vector3(490, 0, 490), new THREE.Vector3(-490, 0, 490), new THREE.Vector3(-490, 0, -490)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
 function spawnRedRunner(pos) { 
-    let r = new CrimsonStalker(0xdd3333, 0xdd3333, true); 
+    let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, -460), new THREE.Vector3(460, 0, 460)]; 
+    r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, 490)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
@@ -538,9 +539,8 @@ function initGameWorld() {
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
 
     stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; existingCubes.clear();
-    
-    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, true)); stalkers[0].group.position.set(-490, 0, -490);
-    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, false)); stalkers[1].group.position.set(490, 0, 490);
+    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
+    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
 
     const container = document.getElementById('baseman-hud-container');
     container.innerHTML = '';
@@ -695,6 +695,7 @@ function animate() {
         let r = runners[i];
         if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
         
+        // Base damage check when reaching enemy base
         let reachedEnemyBase = (r.isYellowRunner && r.group.position.distanceTo(new THREE.Vector3(-460, 0, -460)) < 15) || 
                                (r.isRedRunner && r.group.position.distanceTo(new THREE.Vector3(460, 0, 460)) < 15);
         if (reachedEnemyBase) {
@@ -781,7 +782,7 @@ function animate() {
     let move = new THREE.Vector3(); if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1; if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
     if (move.length() > 0) { 
         move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion); 
-        if(!checkCollision({x: playerGroup.position.x + move.x, y: 0, z: playerGroup.position.z + move.z})) { 
+        if(!checkCollision({x: playerGroup.position.x + move.x, y: 1, z: playerGroup.position.z + move.z})) { 
             playerGroup.position.x += move.x; playerGroup.position.z += move.z; 
         } 
     }
@@ -846,15 +847,12 @@ function animate() {
                 while (curr && curr !== scene) { ent = [...stalkers, ...runners, ...snails].find(s => s.group === curr); if (ent) break; curr = curr.parent; }
                 if (ent) {
                     if (b.userData.isPlayerBullet) {
-                        let isRedMan = (ent === stalkers[0]);
-                        let isBlueMan = (ent === stalkers[1]);
-                        let canShootMan = (myTeam === 'blue' && isBlueMan) || (myTeam === 'red' && isRedMan);
-
-                        if (canShootMan) {
-                            if (playerGold >= 1) {
-                                playerGold -= 1;
-                                socket.emit('spawnUnit', { type: 'runner', team: myTeam });
-                            }
+                        let hitMyBaseMan = (myTeam === 'blue' && ent === stalkers[1]) || (myTeam === 'red' && ent === stalkers[0]);
+                        if (hitMyBaseMan && playerGold >= 1) {
+                            playerGold -= 1;
+                            socket.emit('spawnUnit', { type: 'runner', team: myTeam });
+                        } else if (!ent.isYellowBaseMan && !ent.isBlueBaseMan) {
+                            ent.takeDamage(hObj.userData.partName || 'torso', 50, true);
                         }
                         b.userData.life = 0;
                     }
