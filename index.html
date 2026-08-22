@@ -55,9 +55,13 @@
 
 <div id="lobby-screen">
     <div class="lobby-box">
-        <h1>VANGUARD COMBAT LOBBY</h1>
-        <p id="lobby-status">WAITING FOR COMMANDERS...<br><br>BLUE STATUS: <span id="blue-ready" style="color:red;">NOT READY</span><br>RED STATUS: <span id="red-ready" style="color:red;">NOT READY</span></p>
-        <button id="ready-button" class="ready-btn" onclick="setReady()">I AM READY</button>
+        <h1 id="assigned-team-title">VANGUARD COMBAT LOBBY</h1>
+        <p id="lobby-status">
+            TEAM: <span id="team-name-display" style="color:#0088ff; font-weight:bold;">CONNECTING...</span><br><br>
+            BLUE COMMANDER: <span id="blue-ready" style="color:red;">NOT READY</span><br>
+            RED COMMANDER: <span id="red-ready" style="color:red;">NOT READY</span>
+        </p>
+        <button id="ready-button" class="ready-btn" onclick="setReady()">CONFIRM READY</button>
     </div>
 </div>
 
@@ -101,7 +105,6 @@
 <script>
 const socket = io();
 let myTeam = 'blue';
-let gameStarted = false;
 
 let scene, camera, renderer, playerGroup, snakeHead, dirLight, floor, recruitmentPad, enemyPad;
 let userBlocks = [], aiBlocks = [], wallMeshes = [], bullets = [], turrets = [], keys = {};
@@ -121,6 +124,9 @@ let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
 socket.on('roleAssign', (data) => {
     myTeam = data.team;
     document.getElementById('player-role-label').innerText = `${myTeam.toUpperCase()} COMMANDER: ONLINE`;
+    document.getElementById('team-name-display').innerText = myTeam.toUpperCase();
+    document.getElementById('team-name-display').style.color = (myTeam === 'red') ? '#ff3333' : '#0088ff';
+
     if (myTeam === 'red') {
         playerSpawnPos.set(-430, 0, -430);
         yaw = -2.356;
@@ -135,7 +141,7 @@ socket.on('roleAssign', (data) => {
 
 function setReady() {
     document.getElementById('ready-button').disabled = true;
-    document.getElementById('ready-button').innerText = 'READY - WAITING FOR OPPONENT...';
+    document.getElementById('ready-button').innerText = 'READY LOCKED';
     socket.emit('playerReady');
 }
 
