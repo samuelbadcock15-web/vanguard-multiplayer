@@ -81,7 +81,7 @@ const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
 let playerHP = 100, enemyHP = 100, playerBaseHP = 100, redBaseHP = 100, playerGold = 100;
 let gameActive = true, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
-let playerSpawnPos = new THREE.Vector3(460, 0, 460);
+let playerSpawnPos = new THREE.Vector3(430, 1.2, 430); // Moved away from the snail recruitment circle
 let aiGroup, aiSirenL, aiSirenR, aiPointLight, aiTurrets = [];
 let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
 let lastDamageTime = 0; 
@@ -91,10 +91,10 @@ socket.on('roleAssign', (data) => {
     myTeam = data.team;
     document.getElementById('player-role-label').innerText = `${myTeam.toUpperCase()} COMMANDER: ONLINE`;
     if (myTeam === 'red') {
-        playerSpawnPos.set(-460, 0, -460);
+        playerSpawnPos.set(-430, 1.2, -430);
         yaw = -2.356;
     } else {
-        playerSpawnPos.set(460, 0, 460);
+        playerSpawnPos.set(430, 1.2, 430);
         yaw = 0.785;
     }
     if (scene) {
@@ -133,12 +133,12 @@ socket.on('blockPlaced', (data) => {
 
 socket.on('unitSpawned', (data) => {
     if (data.type === 'snail') {
-        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(460, 0, 460));
-        else spawnRedSnail(new THREE.Vector3(-460, 0, -460));
+        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(430, 1.2, 430));
+        else spawnRedSnail(new THREE.Vector3(-430, 1.2, -430));
     }
     if (data.type === 'runner') {
-        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(490, 0, 490));
-        else spawnRedRunner(new THREE.Vector3(-490, 0, -490));
+        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(460, 1.2, 460));
+        else spawnRedRunner(new THREE.Vector3(-460, 1.2, -460));
     }
 });
 
@@ -227,10 +227,10 @@ function canBuildHere(pos, isPlayer) {
 }
 
 class CrimsonStalker {
-    constructor(cHex, sHex, isYBase=false) {
+    constructor(cHex, sHex, isBlueMan=false) {
         this.group = new THREE.Group(); this.limbs = {}; this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
         this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0;
-        this.shatterHex = sHex; this.isYellowBaseMan = isYBase;
+        this.shatterHex = sHex; this.isBlueBaseMan = isBlueMan;
         
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
         const createPart = (n, w, h, d, y, p) => {
@@ -244,7 +244,6 @@ class CrimsonStalker {
     }
     takeDamage(part, amt, hitPl) {
         if (this.isShattered || !this.limbs[part]) return;
-        if (this.isYellowBaseMan) return; 
         this.health[part] -= (part === 'head' ? amt * 3 : amt);
         const s = Math.max(0.1, this.health[part] / 100); this.limbs[part].scale.set(s, s, s);
         if (this.health.head <= 0 || this.health.torso <= 0) { this.explode(); }
@@ -324,7 +323,7 @@ function spawnYellowSnail(pos) {
     playerSnailsSpawned++; 
     let sn = new CrimsonSnail(0x0077ff, true); 
     sn.group.position.copy(pos); 
-    sn.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460)]; 
+    sn.waypoints = [new THREE.Vector3(430, 1.2, 430), new THREE.Vector3(-430, 1.2, -430)]; 
     snails.push(sn); 
 }
 
@@ -332,21 +331,21 @@ function spawnRedSnail(pos) {
     aiSnailsSpawned++; 
     let sn = new CrimsonSnail(0xcc2222, false); 
     sn.group.position.copy(pos); 
-    sn.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, 460)]; 
+    sn.waypoints = [new THREE.Vector3(-430, 1.2, -430), new THREE.Vector3(430, 1.2, 430)]; 
     snails.push(sn); 
 }
 
 function spawnYellowRunner(pos) { 
-    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true); 
+    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(490, 0, 490), new THREE.Vector3(-490, 0, 490), new THREE.Vector3(-490, 0, -490)]; 
+    r.waypoints = [new THREE.Vector3(460, 1.2, 460), new THREE.Vector3(-460, 1.2, 460), new THREE.Vector3(-460, 1.2, -460)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
 function spawnRedRunner(pos) { 
-    let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); 
+    let r = new CrimsonStalker(0xdd3333, 0xdd3333, false); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, 490)]; 
+    r.waypoints = [new THREE.Vector3(-460, 1.2, -460), new THREE.Vector3(460, 1.2, -460), new THREE.Vector3(460, 1.2, 460)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
@@ -539,8 +538,10 @@ function initGameWorld() {
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
 
     stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; existingCubes.clear();
-    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
-    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
+    
+    // Index 0: Red Base Man (-490, 1.2, -490), Index 1: Blue Base Man (490, 1.2, 490)
+    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 1.2, -490);
+    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 1.2, 490);
 
     const container = document.getElementById('baseman-hud-container');
     container.innerHTML = '';
@@ -562,7 +563,7 @@ function initGameWorld() {
     let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
     let eData = createShip(enemyColor); 
     aiGroup = eData.group; 
-    let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
+    let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-430, 1.2, -430) : new THREE.Vector3(430, 1.2, 430);
     aiGroup.position.copy(enemyPos); scene.add(aiGroup);
 
     snakeHead = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshBasicMaterial({ color: 0x0088ff })); 
@@ -695,9 +696,8 @@ function animate() {
         let r = runners[i];
         if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
         
-        // Base damage check when reaching enemy base
-        let reachedEnemyBase = (r.isYellowRunner && r.group.position.distanceTo(new THREE.Vector3(-460, 0, -460)) < 15) || 
-                               (r.isRedRunner && r.group.position.distanceTo(new THREE.Vector3(460, 0, 460)) < 15);
+        let reachedEnemyBase = (r.isYellowRunner && r.group.position.distanceTo(new THREE.Vector3(-460, 1.2, -460)) < 15) || 
+                               (r.isRedRunner && r.group.position.distanceTo(new THREE.Vector3(460, 1.2, 460)) < 15);
         if (reachedEnemyBase) {
             let targetBaseTeam = r.isYellowRunner ? 'red' : 'blue';
             socket.emit('damageBase', { team: targetBaseTeam, amount: 5 });
@@ -741,8 +741,8 @@ function animate() {
         let sn = snails[i]; 
         if (sn.markedForRemoval) { scene.remove(sn.group); snails.splice(i, 1); continue; }
         
-        let reachedEnemyBase = (sn.isYellowTeam && sn.group.position.distanceTo(new THREE.Vector3(-460, 0, -460)) < 15) || 
-                               (!sn.isYellowTeam && sn.group.position.distanceTo(new THREE.Vector3(460, 0, 460)) < 15);
+        let reachedEnemyBase = (sn.isYellowTeam && sn.group.position.distanceTo(new THREE.Vector3(-460, 1.2, -460)) < 15) || 
+                               (!sn.isYellowTeam && sn.group.position.distanceTo(new THREE.Vector3(460, 1.2, 460)) < 15);
         if (reachedEnemyBase) {
             let targetBaseTeam = sn.isYellowTeam ? 'red' : 'blue';
             socket.emit('damageBase', { team: targetBaseTeam, amount: 15 });
@@ -782,7 +782,7 @@ function animate() {
     let move = new THREE.Vector3(); if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1; if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
     if (move.length() > 0) { 
         move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion); 
-        if(!checkCollision({x: playerGroup.position.x + move.x, y: 1, z: playerGroup.position.z + move.z})) { 
+        if(!checkCollision({x: playerGroup.position.x + move.x, y: 1.2, z: playerGroup.position.z + move.z})) { 
             playerGroup.position.x += move.x; playerGroup.position.z += move.z; 
         } 
     }
@@ -847,14 +847,21 @@ function animate() {
                 while (curr && curr !== scene) { ent = [...stalkers, ...runners, ...snails].find(s => s.group === curr); if (ent) break; curr = curr.parent; }
                 if (ent) {
                     if (b.userData.isPlayerBullet) {
-                        let hitMyBaseMan = (myTeam === 'blue' && ent === stalkers[1]) || (myTeam === 'red' && ent === stalkers[0]);
-                        if (hitMyBaseMan && playerGold >= 1) {
+                        // Index 0: Red Base Man, Index 1: Blue Base Man
+                        let isBlueMan = (ent === stalkers[1]);
+                        let isRedMan = (ent === stalkers[0]);
+                        
+                        // Strict check: Blue commander can ONLY shoot Blue base man; Red commander can ONLY shoot Red base man
+                        let canShootMan = (myTeam === 'blue' && isBlueMan) || (myTeam === 'red' && isRedMan);
+
+                        if (canShootMan && playerGold >= 1) {
                             playerGold -= 1;
                             socket.emit('spawnUnit', { type: 'runner', team: myTeam });
-                        } else if (!ent.isYellowBaseMan && !ent.isBlueBaseMan) {
-                            ent.takeDamage(hObj.userData.partName || 'torso', 50, true);
+                            b.userData.life = 0;
+                        } else {
+                            // Block any damage to enemy base man or friendly base man without gold
+                            b.userData.life = 0;
                         }
-                        b.userData.life = 0;
                     }
                 } else if (hObj !== floor) {
                     let r = hObj; while(r.parent && r.parent !== scene) r = r.parent;
