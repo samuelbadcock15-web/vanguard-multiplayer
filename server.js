@@ -15,11 +15,6 @@ let redPlayer = null;
 let readyStatus = { blue: false, red: false };
 let gameStarted = false;
 
-let gameStates = {
-    blue: { hp: 100 },
-    red: { hp: 100 }
-};
-
 io.on('connection', (socket) => {
     let assignedTeam = null;
 
@@ -69,25 +64,9 @@ io.on('connection', (socket) => {
         io.emit('unitSpawned', data);
     });
 
+    // Pure Stun/Freeze broadcast—no health, no invisible respawns!
     socket.on('shipHit', (data) => {
-        let targetTeam = data.targetTeam;
-        if (gameStates[targetTeam]) {
-            if (data.damage < 0) {
-                gameStates[targetTeam].hp = 100;
-            } else {
-                gameStates[targetTeam].hp = Math.max(0, Math.min(100, gameStates[targetTeam].hp - data.damage));
-            }
-            
-            io.emit('shipHealthUpdate', { 
-                team: targetTeam, 
-                hp: gameStates[targetTeam].hp 
-            });
-
-            if (gameStates[targetTeam].hp <= 0) {
-                gameStates[targetTeam].hp = 100;
-                io.emit('shipRespawn', { team: targetTeam });
-            }
-        }
+        io.emit('applyStun', { team: data.targetTeam });
     });
 
     socket.on('disconnect', () => {
