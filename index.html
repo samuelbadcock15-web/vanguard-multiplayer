@@ -22,13 +22,15 @@
         .control-details { margin-top: 5px; color: #444; }
         .live-metrics { font-size: 10px; color: #c86400; font-weight: bold; }
         
-        /* Pimmed 3D Floating Health Bars Over Vehicles */
-        #overhead-ui, #opponent-overhead-ui { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
+        #overhead-ui, #opponent-overhead-ui, .baseman-hud { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
         
-        .hp-bar, .hp-bar-ai { position: relative; width: 90px; height: 14px; background: rgba(10, 15, 25, 0.8); border: 2px solid #0088ff; border-radius: 3px; overflow: hidden; box-shadow: 0 0 10px rgba(0, 136, 255, 0.5); }
+        .hp-bar, .hp-bar-ai, .hp-bar-baseman { position: relative; width: 90px; height: 14px; background: rgba(10, 15, 25, 0.8); border: 2px solid #0088ff; border-radius: 3px; overflow: hidden; box-shadow: 0 0 10px rgba(0, 136, 255, 0.5); }
         .hp-bar-ai { border-color: #ff3333; box-shadow: 0 0 10px rgba(255, 51, 51, 0.5); }
+        .hp-bar-baseman { width: 60px; height: 8px; border-color: #b8860b; }
+        
         #hp-fill { height: 100%; background: linear-gradient(90deg, #0044aa, #00aaff); transition: width 0.15s ease-out; }
         #ai-hp-fill { height: 100%; background: linear-gradient(90deg, #aa0000, #ff3333); transition: width 0.15s ease-out; }
+        .baseman-fill { height: 100%; background: #00aa44; transition: width 0.15s ease-out; }
         
         .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 9px; font-weight: bold; text-shadow: 1px 1px 2px #000; z-index: 2; }
     </style>
@@ -36,15 +38,16 @@
 <body>
 <div id="cursor-ui"><div class="cursor-v"></div><div class="cursor-h"></div></div>
 
-<!-- Pimmed Floating 3D Health Bar Above Your Craft -->
 <div id="overhead-ui">
     <div class="hp-bar"><div id="hp-fill" style="width: 100%;"></div><div id="hp-text" class="hp-text">100%</div></div>
 </div>
 
-<!-- Pimmed Floating 3D Health Bar Above Opponent Craft -->
 <div id="opponent-overhead-ui">
     <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="hp-text-ai" class="hp-text">100%</div></div>
 </div>
+
+<!-- Dynamic container for Base Men health HUDs -->
+<div id="baseman-hud-container"></div>
 
 <div id="ui-layer">
     <div class="controls">
@@ -140,21 +143,19 @@ socket.on('unitSpawned', (data) => {
     }
 });
 
-// Precise Synchronized Health & Damage Feed
 socket.on('shipHealthUpdate', (data) => {
     let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
     if (data.team === opponentTeam) {
-        enemyHP = data.hp;
+        enemyHP = Math.max(0, Math.min(100, data.hp));
         document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
         document.getElementById('hp-text-ai').innerText = `${Math.round(enemyHP)}%`;
     } else if (data.team === myTeam) {
-        playerHP = data.hp;
+        playerHP = Math.max(0, Math.min(100, data.hp));
         document.getElementById('hp-fill').style.width = playerHP + '%';
         document.getElementById('hp-text').innerText = `${Math.round(playerHP)}%`;
     }
 });
 
-// Full Destruction & Base Respawn Sequence with Flashing Invulnerability
 socket.on('shipDestroyedAndRespawn', (data) => {
     let targetGroup = (data.team === myTeam) ? playerGroup : aiGroup;
     let respawnTarget = new THREE.Vector3(data.x, data.y, data.z);
@@ -176,8 +177,8 @@ socket.on('shipDestroyedAndRespawn', (data) => {
             yaw = data.yaw;
             playerGroup.rotation.y = yaw;
         }
+        targetGroup.visible = true;
 
-        // Spectacular explosion particles on death
         for (let i = 0; i < 50; i++) {
             const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), new THREE.MeshBasicMaterial({ color: 0xffaa00 }));
             p.position.copy(respawnTarget).add(new THREE.Vector3(0, 2, 0));
@@ -186,7 +187,6 @@ socket.on('shipDestroyedAndRespawn', (data) => {
             setTimeout(() => scene.remove(p), 800);
         }
 
-        // Flashing Respawn Animation
         let flashCount = 0;
         let flashInterval = setInterval(() => {
             targetGroup.visible = !targetGroup.visible;
@@ -533,6 +533,17 @@ function initGameWorld() {
     stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
     stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
 
+    // Build Base Man Health HUD elements dynamically
+    const container = document.getElementById('baseman-hud-container');
+    container.innerHTML = '';
+    stalkers.forEach((st, idx) => {
+        let div = document.createElement('div');
+        div.className = 'baseman-hud';
+        div.id = `baseman-hud-${idx}`;
+        div.innerHTML = `<div class="hp-bar-baseman"><div class="baseman-fill" id="baseman-fill-${idx}" style="width:100%;"></div></div>`;
+        container.appendChild(div);
+    });
+
     sirenGeo = new THREE.BoxGeometry(0.7, 0.25, 0.5);
     let myColor = myTeam === 'blue' ? 0x0088ff : 0xcc2222;
     let pData = createShip(myColor);
@@ -595,13 +606,29 @@ function checkCollision(pos) {
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
+    // Player Vehicle HUD
     const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 1.8; wp.project(camera); 
     document.getElementById('overhead-ui').style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
     document.getElementById('overhead-ui').style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
 
+    // Opponent Vehicle HUD
     const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); ew.y += 1.8; ew.project(camera); 
     document.getElementById('opponent-overhead-ui').style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
     document.getElementById('opponent-overhead-ui').style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
+
+    // Base Men Health Bars
+    stalkers.forEach((st, idx) => {
+        if (st && st.group) {
+            const bp = new THREE.Vector3(); st.group.getWorldPosition(bp); bp.y += 5.5; bp.project(camera);
+            const hud = document.getElementById(`baseman-hud-${idx}`);
+            if (hud) {
+                hud.style.left = `${(bp.x * .5 + .5) * window.innerWidth}px`;
+                hud.style.top = `${(-(bp.y * .5) + .5) * window.innerHeight}px`;
+                let hpPct = (st.health.torso / 100) * 100;
+                document.getElementById(`baseman-fill-${idx}`).style.width = `${Math.max(0, hpPct)}%`;
+            }
+        }
+    });
 }
 
 function updateCounters() {
@@ -614,17 +641,17 @@ function updateCounters() {
 function animate() {
     requestAnimationFrame(animate); if (!renderer || !scene || !camera) return;
     
-    // Health Regeneration when out of combat for 4 seconds
     if (playerHP < 100 && Date.now() - lastDamageTime > 4000) {
         playerHP = Math.min(100, playerHP + 0.15);
         socket.emit('syncHealth', { team: myTeam, hp: playerHP });
     }
 
-    if (playerHP <= 0) {
+    if (playerHP <= 0 && !isInvulnerable) {
         playerHP = 100;
         playerGroup.position.copy(playerSpawnPos);
         yaw = (myTeam === 'red') ? -2.356 : 0.785;
         playerGroup.rotation.y = yaw;
+        isInvulnerable = true;
         socket.emit('shipHit', { targetTeam: myTeam, damage: -100 });
         
         let flashCount = 0;
@@ -634,6 +661,7 @@ function animate() {
             if (flashCount > 10) {
                 clearInterval(flashInterval);
                 playerGroup.visible = true;
+                isInvulnerable = false;
             }
         }, 150);
     }
@@ -761,7 +789,7 @@ function animate() {
             socket.emit('shipHit', { targetTeam: opponentTeam, damage: 10 });
             b.userData.life = 0;
         }
-        if (!b.userData.isPlayerBullet && playerGroup && b.position.distanceTo(playerGroup.position) < 4) {
+        if (!b.userData.isPlayerBullet && playerGroup && b.position.distanceTo(playerGroup.position) < 4 && !isInvulnerable) {
             playerHP = Math.max(0, playerHP - 10);
             lastDamageTime = Date.now();
             socket.emit('shipHit', { targetTeam: myTeam, damage: 10 });
