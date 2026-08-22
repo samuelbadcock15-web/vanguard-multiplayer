@@ -34,7 +34,6 @@
         
         .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 8px; font-weight: bold; text-shadow: 1px 1px 2px #000; text-transform: uppercase; letter-spacing: 0.5px; z-index: 2; box-sizing: border-box; }
 
-        /* Game Over Stats Overlay */
         #game-over-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.82); z-index: 1000; display: none; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-family: monospace; text-transform: uppercase; }
         .game-over-box { background: #111; border: 3px solid #0088ff; padding: 30px; border-radius: 6px; text-align: center; box-shadow: 0 0 30px rgba(0,136,255,0.5); min-width: 320px; }
         .game-over-box h1 { font-size: 24px; margin-bottom: 10px; color: #00ff88; }
@@ -77,7 +76,7 @@
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
-                [W/A/S/D] MOVE | [MOUSE] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!<br><span style="color:#00aa44;">FIRE FROM LEFT OF RECRUITMENT LANE ONLY!</span>
+                [W/A/S/D] MOVE | [MOUSE] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!<br><span style="color:#00aa44;">SHOOT STALKER MAN FROM BASE CORNER!</span>
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
@@ -540,7 +539,7 @@ function initGameWorld() {
     enemyPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 1.0, metalness: 0.0 })); 
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
 
-    // Floor firing lane / recruitment lane markers pointing safely away from stalker spawn
+    // Floor firing lane marker pointing left of the recruitment pad
     const laneMarkerGeo = new THREE.PlaneGeometry(6, 30);
     const blueLaneMat = new THREE.MeshBasicMaterial({ color: 0x00aaff, side: THREE.DoubleSide, transparent: true, opacity: 0.6 });
     const redLaneMat = new THREE.MeshBasicMaterial({ color: 0xff3333, side: THREE.DoubleSide, transparent: true, opacity: 0.6 });
@@ -556,8 +555,8 @@ function initGameWorld() {
     scene.add(redLane);
 
     stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; existingCubes.clear();
-    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-460, 0, -460);
-    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(460, 0, 460);
+    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
+    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
 
     sirenGeo = new THREE.BoxGeometry(0.7, 0.25, 0.5);
     let myColor = myTeam === 'blue' ? 0x0088ff : 0xcc2222;
@@ -681,7 +680,6 @@ function animate() {
         socket.emit('playerRespawn', { x: playerSpawnPos.x, y: playerSpawnPos.y, z: playerSpawnPos.z, yaw: yaw });
     }
 
-    // Check Win/Loss conditions
     if (playerBaseHP <= 0) {
         triggerGameOver("RED TEAM WINS!", "YOUR BASE HAS BEEN DESTROYED.");
     } else if (redBaseHP <= 0) {
@@ -780,7 +778,7 @@ function animate() {
             
             if (sn.group.position.distanceTo(tar) < 16) {
                 sn.currentWaypointIndex++;
-                r.navState = 'SEEK'; r.followSteps = 0;
+                sn.navState = 'SEEK'; sn.followSteps = 0;
                 if (sn.currentWaypointIndex >= sn.waypoints.length) {
                     sn.waypoints.push(targetBasePos);
                 }
