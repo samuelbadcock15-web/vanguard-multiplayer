@@ -14,8 +14,8 @@ let blueSocketId = null;
 let redSocketId = null;
 
 let gameState = {
-    blue: { hp: 100, baseHp: 100 },
-    red: { hp: 100, baseHp: 100 }
+    blue: { hp: 100 },
+    red: { hp: 100 }
 };
 
 io.on('connection', (socket) => {
@@ -23,12 +23,10 @@ io.on('connection', (socket) => {
         blueSocketId = socket.id;
         players[socket.id] = { team: 'blue' };
         socket.emit('roleAssign', { team: 'blue' });
-        console.log(`Blue Commander connected: ${socket.id}`);
     } else if (!redSocketId) {
         redSocketId = socket.id;
         players[socket.id] = { team: 'red' };
         socket.emit('roleAssign', { team: 'red' });
-        console.log(`Red Commander connected: ${socket.id}`);
     } else {
         players[socket.id] = { team: 'spectator' };
         socket.emit('roleAssign', { team: 'spectator' });
@@ -50,17 +48,10 @@ io.on('connection', (socket) => {
         io.emit('unitSpawned', data);
     });
 
-    socket.on('damageBase', (data) => {
-        let targetTeam = data.team;
-        if (gameState[targetTeam]) {
-            gameState[targetTeam].baseHp = Math.max(0, gameState[targetTeam].baseHp - data.amount);
-            io.emit('baseDamageUpdate', { team: targetTeam, baseHp: gameState[targetTeam].baseHp });
-        }
-    });
-
     socket.on('shipHit', (data) => {
         let targetTeam = data.targetTeam;
         if (gameState[targetTeam]) {
+            // Apply damage and clamp strictly between 0 and 100
             gameState[targetTeam].hp = Math.max(0, Math.min(100, gameState[targetTeam].hp - data.damage));
             
             io.emit('shipHealthUpdate', { 
@@ -70,7 +61,7 @@ io.on('connection', (socket) => {
 
             if (gameState[targetTeam].hp <= 0) {
                 gameState[targetTeam].hp = 100;
-                let respawnPos = (targetTeam === 'blue') ? { x: 460, y: 1.2, z: 460, yaw: 0.785 } : { x: -460, y: 1.2, z: -460, yaw: -2.356 };
+                let respawnPos = (targetTeam === 'blue') ? { x: 460, y: 0, z: 460, yaw: 0.785 } : { x: -460, y: 0, z: -460, yaw: -2.356 };
                 
                 io.emit('shipDestroyedAndRespawn', {
                     team: targetTeam,
