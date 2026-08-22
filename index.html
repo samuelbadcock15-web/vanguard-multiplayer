@@ -95,7 +95,7 @@
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
-                [W/A/S/D] MOVE | [MOUSE] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!<br><span style="color:#ff3333;">ROUNDS CANNOT ENTER PROTECTED BASE ZONES!</span>
+                [W/A/S/D] MOVE | [MOUSE] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!<br><span style="color:#ff3333;">ROUNDS CANNOT ENTER ENEMY BASE ZONE!</span>
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
@@ -884,8 +884,12 @@ function animate() {
         const b = bullets[i]; b.position.add(b.userData.velocity); b.userData.life--;
         if (b.userData.life <= 0) { scene.remove(b); bullets.splice(i, 1); continue; }
 
-        // Bullet protection check: destroy bullet if it enters either protected base zone (Blue: x>=400 & z>=400, Red: x<=-400 & z<=-400)
-        if ((b.position.x >= 400 && b.position.z >= 400) || (b.position.x <= -400 && b.position.z <= -400)) {
+        // Bullet protection check: destroy bullet ONLY if it enters the ENEMY'S protected base zone
+        let enemyBaseX = (myTeam === 'blue') ? -400 : 400;
+        let enemyBaseZ = (myTeam === 'blue') ? -400 : 400;
+        let inEnemyBase = (myTeam === 'blue') ? (b.position.x <= enemyBaseX && b.position.z <= enemyBaseZ) : (b.position.x >= enemyBaseX && b.position.z >= enemyBaseZ);
+        
+        if (inEnemyBase) {
             scene.remove(b); bullets.splice(i, 1); continue;
         }
 
