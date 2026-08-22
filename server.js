@@ -10,7 +10,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
 
-let players = {};
 let bluePlayer = null;
 let redPlayer = null;
 let readyStatus = { blue: false, red: false };
@@ -22,34 +21,36 @@ let gameStates = {
 };
 
 io.on('connection', (socket) => {
+    let assignedTeam = null;
+
     if (!bluePlayer) {
         bluePlayer = socket.id;
-        players[socket.id] = { team: 'blue' };
+        assignedTeam = 'blue';
         socket.emit('roleAssign', { team: 'blue' });
         console.log(`Blue Commander connected: ${socket.id}`);
     } else if (!redPlayer) {
         redPlayer = socket.id;
-        players[socket.id] = { team: 'red' };
+        assignedTeam = 'red';
         socket.emit('roleAssign', { team: 'red' });
         console.log(`Red Commander connected: ${socket.id}`);
     } else {
-        players[socket.id] = { team: 'spectator' };
+        assignedTeam = 'spectator';
         socket.emit('roleAssign', { team: 'spectator' });
         console.log(`Spectator connected: ${socket.id}`);
     }
 
-    socket.on('playerReady', (data) => {
-        if (players[socket.id]) {
-            let team = players[socket.id].team;
-            if (team === 'blue' || team === 'red') {
-                readyStatus[team] = true;
-                io.emit('updateReadyStatus', readyStatus);
+    // Broadcast current ready states to any new connection
+    socket.emit('updateReadyStatus', readyStatus);
 
-                // If both players are ready, trigger countdown
-                if (readyStatus.blue && readyStatus.red && !gameStarted) {
-                    gameStarted = true;
-                    io.emit('startCountdown');
-                }
+    socket.on('playerReady', () => {
+        if (assignedTeam === 'blue' || assignedTeam === 'red') {
+            readyStatus[assignedTeam] = true;
+            io.emit('updateReadyStatus', readyStatus);
+
+            // Trigger countdown when both Blue and Red are ready
+            if (readyStatus.blue && readyStatus.red && !gameStarted) {
+                gameStarted = true;
+                io.emit('startCountdown');
             }
         }
     });
@@ -92,11 +93,16 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        if (socket.id === bluePlayer) bluePlayer = null;
-        if (socket.id === redPlayer) redPlayer = null;
-        delete players[socket.id];
-        readyStatus = { blue: false, red: false };
+        if (socket.id === bluePlayer) {
+            bluePlayer = null;
+            readyStatus.blue = false;
+        }
+        if (socket.id === redPlayer) {
+            redPlayer = null;
+            readyStatus.red = false;
+        }
         gameStarted = false;
+        io.emit('updateReadyStatus', readyStatus);
         io.emit('playerLeft', { id: socket.id });
     });
 });
