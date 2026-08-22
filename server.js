@@ -7,27 +7,27 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
 const PORT = process.env.PORT || 3000;
-
 app.use(express.static(__dirname));
 
 let players = {};
-let bluePlayer = null;
-let redPlayer = null;
+let blueSocketId = null;
+let redSocketId = null;
 
-// Track both players' health states on the server
-let gameStates = {
-    blue: { hp: 100 },
-    red: { hp: 100 }
+// Clean server-side health tracking
+let gameState = {
+    blue: { hp: 100, baseHp: 100 },
+    red: { hp: 100, baseHp: 100 }
 };
 
 io.on('connection', (socket) => {
-    if (!bluePlayer) {
-        bluePlayer = socket.id;
+    // Role assignment
+    if (!blueSocketId) {
+        blueSocketId = socket.id;
         players[socket.id] = { team: 'blue' };
         socket.emit('roleAssign', { team: 'blue' });
         console.log(`Blue Commander connected: ${socket.id}`);
-    } else if (!redPlayer) {
-        redPlayer = socket.id;
+    } else if (!redSocketId) {
+        redSocketId = socket.id;
         players[socket.id] = { team: 'red' };
         socket.emit('roleAssign', { team: 'red' });
         console.log(`Red Commander connected: ${socket.id}`);
@@ -53,33 +53,41 @@ io.on('connection', (socket) => {
         io.emit('unitSpawned', data);
     });
 
-    // Synchronize damage across clients
-    socket.on('shipHit', (data) => {
-        let targetTeam = data.targetTeam;
-        if (gameStates[targetTeam]) {
-            gameStates[targetTeam].hp = Math.max(0, gameStates[targetTeam].hp - data.damage);
-            
-            // Broadcast the updated health to everyone
-            io.emit('shipHealthUpdate', { 
-                team: targetTeam, 
-                hp: gameStates[targetTeam].hp 
+    // Authoritative Hit Handling & Respawns
+    socket.on('registerHit', (data) => {
+        let victimTeam = data.targetTeam; // 'blue' or 'red'
+        if (gameState[victimTeam]) {
+            gameState[victimTeam].hp = Math.max(0, gameState[victimTeam].hp - data.damage);
+
+            // Tell everyone the new health states
+            io.emit('updateHealth', {
+                blueHp: gameState.blue.hp,
+                redHp: gameState.red.hp,
+                blueBase: gameState.blue.baseHp,
+                redBase: gameState.red.baseHp
             });
 
-            if (gameStates[targetTeam].hp <= 0) {
-                gameStates[targetTeam].hp = 100;
-                io.emit('shipRespawn', { team: targetTeam });
+            // Check for Vessel Death & Respawn
+            if (gameState[victimTeam].hp <= 0) {
+                gameState[victimTeam].hp = 100;
+                let respawnPos = (victimTeam === 'blue') ? { x: 460, y: 0, z: 460, yaw: 0.785 } : { x: -460, y: 0, z: -460, yaw: -2.356 };
+                
+                io.emit('forceRespawn', {
+                    team: victimTeam,
+                    ...respawnPos
+                });
             }
         }
     });
 
     socket.on('disconnect', () => {
-        if (socket.id === bluePlayer) bluePlayer = null;
-        if (socket.id === redPlayer) redPlayer = null;
+        if (socket.id === blueSocketId) blueSocketId = null;
+        if (socket.id === redSocketId) redSocketId = null;
         delete players[socket.id];
         io.emit('playerLeft', { id: socket.id });
     });
 });
 
 server.listen(PORT, () => {
-    console.log(`Vanguard multiplayer server listening on port ${PORT}`);
+    console.log(`Vanguard server running on port ${PORT}`);
 });
