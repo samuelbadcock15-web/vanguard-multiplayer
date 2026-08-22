@@ -177,7 +177,7 @@ socket.on('enemyMove', (data) => {
     if (aiGroup) {
         aiGroup.position.set(data.x, data.y, data.z);
         aiGroup.rotation.y = data.yaw;
-        aiGroup.visible = true; // Always force visible
+        aiGroup.visible = true; // Permanent visibility lock
     }
 });
 
@@ -214,7 +214,6 @@ socket.on('unitSpawned', (data) => {
     }
 });
 
-// Stun/Freeze sync network event
 socket.on('applyStun', (data) => {
     if (data.team === myTeam) {
         playerFrozenUntil = Date.now() + 3000;
@@ -561,7 +560,7 @@ function initGameWorld() {
     const blueWallXMat = new THREE.MeshBasicMaterial({ map: blueWallXTex, side: THREE.DoubleSide });
 
     wallMeshes = []; const lim = 498;
-    [ { z: -lim, r: 0, mat: redWallZMat, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZMat, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
+    [ { z: -lim, r: 0, mat: redWallZMat, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZTex, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
         const wl = new THREE.Mesh(new THREE.PlaneGeometry(1000, 100), w.mat); 
         if (w.z) wl.position.z = w.z; if (w.x) wl.position.x = w.x; wl.position.y = 50; wl.rotation.y = w.r; wl.userData.wallTheme = w.theme;
         scene.add(wl); wallMeshes.push(wl);
@@ -604,7 +603,7 @@ function initGameWorld() {
     let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-430, 0, -430) : new THREE.Vector3(430, 0, 430);
     aiGroup.position.copy(enemyPos); scene.add(aiGroup);
 
-    aiGroup.visible = true; // FORCE ENEMY SHIP VISIBLE
+    aiGroup.visible = true; // Permanently lock visibility on
 
     snakeHead = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshBasicMaterial({ color: 0x0088ff })); 
     snakeHead.visible = false; scene.add(snakeHead);
@@ -855,14 +854,8 @@ function animate() {
 
         let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
         
-        // Check if player's bullet hits opponent ship
         if (b.userData.isPlayerBullet && aiGroup && b.position.distanceTo(aiGroup.position) < 4) {
             socket.emit('shipHit', { targetTeam: opponentTeam });
-            b.userData.life = 0;
-        }
-        // Check if opponent's bullet hits local player ship
-        if (!b.userData.isPlayerBullet && playerGroup && b.position.distanceTo(playerGroup.position) < 4) {
-            playerFrozenUntil = Date.now() + 3000;
             b.userData.life = 0;
         }
 
