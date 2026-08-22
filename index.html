@@ -527,7 +527,7 @@ function initGameWorld() {
     const blueWallXMat = new THREE.MeshBasicMaterial({ map: blueWallXTex, side: THREE.DoubleSide });
 
     wallMeshes = []; const lim = 498;
-    [ { z: -lim, r: 0, mat: redWallZMat, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZMat, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
+    [ { z: -lim, r: 0, mat: redWallZTex, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZTex, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
         const wl = new THREE.Mesh(new THREE.PlaneGeometry(1000, 100), w.mat); 
         if (w.z) wl.position.z = w.z; if (w.x) wl.position.x = w.x; wl.position.y = 50; wl.rotation.y = w.r; wl.userData.wallTheme = w.theme;
         scene.add(wl); wallMeshes.push(wl);
@@ -539,24 +539,25 @@ function initGameWorld() {
     enemyPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 1.0, metalness: 0.0 })); 
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
 
-    // Floor firing lane marker pointing left of the recruitment pad
-    const laneMarkerGeo = new THREE.PlaneGeometry(6, 30);
+    // Stalker Men locked back in original corners
+    stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; existingCubes.clear();
+    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
+    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
+
+    // Floor firing lane marker placed neatly underneath Stalker man (490, 490 for Blue / -490, -490 for Red)
+    const laneMarkerGeo = new THREE.PlaneGeometry(6, 25);
     const blueLaneMat = new THREE.MeshBasicMaterial({ color: 0x00aaff, side: THREE.DoubleSide, transparent: true, opacity: 0.6 });
     const redLaneMat = new THREE.MeshBasicMaterial({ color: 0xff3333, side: THREE.DoubleSide, transparent: true, opacity: 0.6 });
     
     const blueLane = new THREE.Mesh(laneMarkerGeo, blueLaneMat);
     blueLane.rotation.x = -Math.PI / 2;
-    blueLane.position.set(430, 0.25, 465);
+    blueLane.position.set(460, 0.25, 490);
     scene.add(blueLane);
 
     const redLane = new THREE.Mesh(laneMarkerGeo, redLaneMat);
     redLane.rotation.x = -Math.PI / 2;
-    redLane.position.set(-430, 0.25, -465);
+    redLane.position.set(-460, 0.25, -490);
     scene.add(redLane);
-
-    stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; existingCubes.clear();
-    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
-    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
 
     sirenGeo = new THREE.BoxGeometry(0.7, 0.25, 0.5);
     let myColor = myTeam === 'blue' ? 0x0088ff : 0xcc2222;
@@ -778,7 +779,7 @@ function animate() {
             
             if (sn.group.position.distanceTo(tar) < 16) {
                 sn.currentWaypointIndex++;
-                sn.navState = 'SEEK'; sn.followSteps = 0;
+                r.navState = 'SEEK'; r.followSteps = 0;
                 if (sn.currentWaypointIndex >= sn.waypoints.length) {
                     sn.waypoints.push(targetBasePos);
                 }
