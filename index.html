@@ -125,6 +125,7 @@ socket.on('enemyMove', (data) => {
     if (aiGroup) {
         aiGroup.position.set(data.x, data.y, data.z);
         aiGroup.rotation.y = data.yaw;
+        aiGroup.visible = true; // Ensure enemy remains visible when moving
     }
 });
 
@@ -178,7 +179,7 @@ socket.on('shipRespawn', (data) => {
     let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
     if (data.team === opponentTeam && aiGroup) {
         enemyHP = 100;
-        aiGroup.visible = true;
+        aiGroup.visible = true; // Force opponent craft visible again upon respawn
         document.getElementById('ai-hp-fill').style.width = '100%';
         document.getElementById('hp-text-ai').innerText = 'ENEMY: 100%';
         let respawnTarget = (opponentTeam === 'blue') ? new THREE.Vector3(430, 0, 430) : new THREE.Vector3(-430, 0, -430);
@@ -190,6 +191,7 @@ socket.on('playerRespawn', (data) => {
     if (aiGroup) {
         aiGroup.position.set(data.x, data.y, data.z);
         aiGroup.rotation.y = data.yaw;
+        aiGroup.visible = true;
     }
 });
 
@@ -662,7 +664,6 @@ function animate() {
         socket.emit('playerRespawn', { x: playerSpawnPos.x, y: playerSpawnPos.y, z: playerSpawnPos.z, yaw: yaw });
     }
 
-    // Base slow regeneration over time (+1 HP per second, max 500)
     let now = Date.now();
     if (now - lastBaseRegenTime >= 1000) {
         playerBaseHP = Math.min(500, playerBaseHP + 1);
@@ -679,7 +680,6 @@ function animate() {
     document.getElementById('hp-fill').style.width = playerHP + '%'; 
     document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
     
-    // Percentage width mapping for base health bars (500 max HP)
     document.getElementById('base-hp-fill').style.width = (playerBaseHP / 500 * 100) + '%'; 
     document.getElementById('base-hp-text').innerText = 'BLUE BASE: ' + Math.round(playerBaseHP);
     
@@ -749,7 +749,6 @@ function animate() {
         let reachedEnemyBase = sn.group.position.distanceTo(targetBasePos) < 14;
         if (reachedEnemyBase) {
             let targetBaseTeam = sn.isYellowTeam ? 'red' : 'blue';
-            // Snails deal 25 heavy siege damage to the base
             if (targetBaseTeam === 'red') redBaseHP = Math.max(0, redBaseHP - 25);
             else playerBaseHP = Math.max(0, playerBaseHP - 25);
             sn.explode();
