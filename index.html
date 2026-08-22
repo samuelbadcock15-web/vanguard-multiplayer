@@ -44,15 +44,7 @@
 </div>
 
 <div id="opponent-overhead-ui">
-    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="hp-text-ai" class="hp-text">ENEMY: 100%</div></div>
-</div>
-
-<div id="red-baseman-hud">
-    <div class="hp-bar-baseman"><div class="baseman-fill" id="red-baseman-fill" style="width: 100%;"></div><div class="baseman-text">BASE</div></div>
-</div>
-
-<div id="blue-baseman-hud">
-    <div class="hp-bar-baseman"><div class="baseman-fill" id="blue-baseman-fill" style="width: 100%;"></div><div class="baseman-text">BASE</div></div>
+    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="ai-text-ai" class="hp-text">ENEMY: 100%</div></div>
 </div>
 
 <div id="ui-layer">
@@ -88,7 +80,7 @@ const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
 let playerHP = 100, playerBaseHP = 100, enemyHP = 100, aiBaseHP = 100, playerGold = 100;
 let gameActive = true, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
-let playerSpawnPos = new THREE.Vector3(460, 0, 460);
+let playerSpawnPos = new THREE.Vector3(430, 0, 430); // Moved slightly off the snail circle
 let aiGroup, aiSirenL, aiSirenR, aiPointLight, aiTurrets = [];
 let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
 
@@ -96,10 +88,10 @@ socket.on('roleAssign', (data) => {
     myTeam = data.team;
     document.getElementById('player-role-label').innerText = `${myTeam.toUpperCase()} COMMANDER: ONLINE`;
     if (myTeam === 'red') {
-        playerSpawnPos.set(-460, 0, -460);
+        playerSpawnPos.set(-430, 0, -430);
         yaw = -2.356;
     } else {
-        playerSpawnPos.set(460, 0, 460);
+        playerSpawnPos.set(430, 0, 430);
         yaw = 0.785;
     }
     if (scene) {
@@ -164,7 +156,7 @@ socket.on('shipRespawn', (data) => {
         enemyHP = 100;
         document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
         document.getElementById('hp-text-ai').innerText = 'ENEMY: 100%';
-        let respawnTarget = (opponentTeam === 'blue') ? new THREE.Vector3(460, 0, 460) : new THREE.Vector3(-460, 0, -460);
+        let respawnTarget = (opponentTeam === 'blue') ? new THREE.Vector3(430, 0, 430) : new THREE.Vector3(-430, 0, -430);
         aiGroup.position.copy(respawnTarget);
     }
 });
@@ -525,7 +517,7 @@ function initGameWorld() {
     let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
     let eData = createShip(enemyColor); 
     aiGroup = eData.group; 
-    let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
+    let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-430, 0, -430) : new THREE.Vector3(430, 0, 430);
     aiGroup.position.copy(enemyPos); scene.add(aiGroup);
 
     snakeHead = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshBasicMaterial({ color: 0x0088ff })); 
@@ -577,60 +569,13 @@ function checkCollision(pos) {
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
-    // Player Craft HUD
     const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 1.8; wp.project(camera); 
-    const pUi = document.getElementById('overhead-ui');
-    if (wp.z > 1 || Math.abs(wp.x) > 1.2 || Math.abs(wp.y) > 1.2) {
-        pUi.style.display = 'none';
-    } else {
-        pUi.style.display = 'flex';
-        pUi.style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
-        pUi.style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
-    }
+    document.getElementById('overhead-ui').style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
+    document.getElementById('overhead-ui').style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
 
-    // Opponent Craft HUD
     const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); ew.y += 1.8; ew.project(camera); 
-    const eUi = document.getElementById('opponent-overhead-ui');
-    if (ew.z > 1 || Math.abs(ew.x) > 1.2 || Math.abs(ew.y) > 1.2) {
-        eUi.style.display = 'none';
-    } else {
-        eUi.style.display = 'flex';
-        eUi.style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
-        eUi.style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
-    }
-
-    // Stalker / Base Man Head HUDs
-    if (stalkers.length >= 2) {
-        const redStalkerPos = new THREE.Vector3(); stalkers[0].group.getWorldPosition(redStalkerPos); redStalkerPos.y += 5.0; redStalkerPos.project(camera);
-        const redHud = document.getElementById('red-baseman-hud');
-        if (redHud) {
-            if (redStalkerPos.z > 1 || Math.abs(redStalkerPos.x) > 1.2 || Math.abs(redStalkerPos.y) > 1.2) {
-                redHud.style.display = 'none';
-            } else {
-                redHud.style.display = 'flex';
-                redHud.style.left = `${(redStalkerPos.x * .5 + .5) * window.innerWidth}px`;
-                redHud.style.top = `${(-(redStalkerPos.y * .5) + .5) * window.innerHeight}px`;
-            }
-        }
-        let redHpPct = (stalkers[0].health.torso / 100) * 100;
-        const redFill = document.getElementById('red-baseman-fill');
-        if (redFill) redFill.style.width = Math.max(0, redHpPct) + '%';
-
-        const blueStalkerPos = new THREE.Vector3(); stalkers[1].group.getWorldPosition(blueStalkerPos); blueStalkerPos.y += 5.0; blueStalkerPos.project(camera);
-        const blueHud = document.getElementById('blue-baseman-hud');
-        if (blueHud) {
-            if (blueStalkerPos.z > 1 || Math.abs(blueStalkerPos.x) > 1.2 || Math.abs(blueStalkerPos.y) > 1.2) {
-                blueHud.style.display = 'none';
-            } else {
-                blueHud.style.display = 'flex';
-                blueHud.style.left = `${(blueStalkerPos.x * .5 + .5) * window.innerWidth}px`;
-                blueHud.style.top = `${(-(blueStalkerPos.y * .5) + .5) * window.innerHeight}px`;
-            }
-        }
-        let blueHpPct = (stalkers[1].health.torso / 100) * 100;
-        const blueFill = document.getElementById('blue-baseman-fill');
-        if (blueFill) blueFill.style.width = Math.max(0, blueHpPct) + '%';
-    }
+    document.getElementById('opponent-overhead-ui').style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
+    document.getElementById('opponent-overhead-ui').style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
 }
 
 function updateCounters() {
