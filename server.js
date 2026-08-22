@@ -48,19 +48,17 @@ io.on('connection', (socket) => {
         io.emit('unitSpawned', data);
     });
 
-    // Authoritative Combat Hit Processing
     socket.on('shipHit', (data) => {
         let targetTeam = data.targetTeam;
         if (gameState[targetTeam]) {
-            gameState[targetTeam].hp = Math.max(0, gameState[targetTeam].hp - data.damage);
+            // Apply damage and clamp strictly between 0 and 100
+            gameState[targetTeam].hp = Math.max(0, Math.min(100, gameState[targetTeam].hp - data.damage));
             
-            // Broadcast damage to both players so health bars match identically
             io.emit('shipHealthUpdate', { 
                 team: targetTeam, 
                 hp: gameState[targetTeam].hp 
             });
 
-            // Trigger destruction & base respawn sequence if health hits 0
             if (gameState[targetTeam].hp <= 0) {
                 gameState[targetTeam].hp = 100;
                 let respawnPos = (targetTeam === 'blue') ? { x: 460, y: 0, z: 460, yaw: 0.785 } : { x: -460, y: 0, z: -460, yaw: -2.356 };
@@ -75,8 +73,8 @@ io.on('connection', (socket) => {
 
     socket.on('syncHealth', (data) => {
         if (gameState[data.team]) {
-            gameState[data.team].hp = data.hp;
-            socket.broadcast.emit('shipHealthUpdate', { team: data.team, hp: data.hp });
+            gameState[data.team].hp = Math.max(0, Math.min(100, data.hp));
+            socket.broadcast.emit('shipHealthUpdate', { team: data.team, hp: gameState[data.team].hp });
         }
     });
 
@@ -89,5 +87,5 @@ io.on('connection', (socket) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`Vanguard combat server running on port ${PORT}`);
+    console.log(`Vanguard server running on port ${PORT}`);
 });
