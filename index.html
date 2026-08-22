@@ -177,7 +177,7 @@ socket.on('enemyMove', (data) => {
     if (aiGroup) {
         aiGroup.position.set(data.x, data.y, data.z);
         aiGroup.rotation.y = data.yaw;
-        aiGroup.visible = true; // Permanent visibility lock
+        aiGroup.visible = true;
     }
 });
 
@@ -529,7 +529,9 @@ function fireWeapon() {
     turrets.forEach(t => {
         const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0x0066ff : 0xff3333 })), wp = new THREE.Vector3();
         t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); raycaster.setFromCamera(mouse, camera);
-        const pool = [scene, floor, recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks, aiGroup];
+        
+        // aiGroup is completely omitted here so bullets can never interact with or delete the enemy ship mesh!
+        const pool = [scene, floor, recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
         stalkers.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         runners.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         snails.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
@@ -859,7 +861,8 @@ function animate() {
             b.userData.life = 0;
         }
 
-        let pool = [recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks, aiGroup];
+        // aiGroup is completely removed from the collision pool array, making it physically impossible for bullets to delete or hide the craft
+        let pool = [recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
         stalkers.forEach(s => { if(!s.isShattered) pool.push(s.group); });
         runners.forEach(s => { if(!s.isShattered) pool.push(s.group); });
         snails.forEach(s => { if(!s.isShattered) pool.push(s.group); });
