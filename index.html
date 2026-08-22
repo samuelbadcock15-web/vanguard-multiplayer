@@ -22,18 +22,17 @@
         .control-details { margin-top: 5px; color: #444; }
         .live-metrics { font-size: 10px; color: #c86400; font-weight: bold; }
         
-        #overhead-ui, #opponent-overhead-ui, #red-baseman-hud, #blue-baseman-hud { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
+        #overhead-ui, #opponent-overhead-ui, #blue-base-hud, #red-base-hud { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); display: none; }
         
         .hp-bar, .hp-bar-ai { position: relative; width: 100px; height: 12px; background: #ccc; border: 1px solid #888; border-radius: 2px; overflow: hidden; box-sizing: border-box; }
         .hp-bar-ai { width: 100px; border-color: #cc2222; background: #f0c0c0; }
-        .hp-bar-baseman { position: relative; width: 50px; height: 6px; background: rgba(0,0,0,0.6); border: 1px solid #b8860b; border-radius: 2px; overflow: hidden; box-sizing: border-box; }
         
         #hp-fill { height: 100%; background: #0077ff; transition: width 0.1s; }
+        #base-hp-fill { height: 100%; background: #0044aa; transition: width 0.3s; }
         #ai-hp-fill { height: 100%; background: #cc2222; transition: width 0.1s; }
-        .baseman-fill { height: 100%; background: #00aa44; transition: width 0.1s; }
+        #ai-base-hp-fill { height: 100%; background: #990000; transition: width 0.3s; }
         
         .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 8px; font-weight: bold; text-shadow: 1px 1px 2px #000; text-transform: uppercase; letter-spacing: 0.5px; z-index: 2; box-sizing: border-box; }
-        .baseman-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 5px; font-weight: bold; text-shadow: 1px 1px 1px #000; z-index: 2; }
     </style>
 </head>
 <body>
@@ -45,6 +44,13 @@
 
 <div id="opponent-overhead-ui">
     <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="hp-text-ai" class="hp-text">ENEMY: 100%</div></div>
+</div>
+
+<div id="blue-base-hud">
+    <div class="hp-bar"><div id="base-hp-fill" style="width: 100%;"></div><div id="base-hp-text" class="hp-text">BLUE BASE: 100%</div></div>
+</div>
+<div id="red-base-hud">
+    <div class="hp-bar-ai"><div id="ai-base-hp-fill" style="width: 100%;"></div><div id="ai-base-hp-text" class="hp-text">RED BASE: 100%</div></div>
 </div>
 
 <div id="ui-layer">
@@ -59,7 +65,7 @@
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
-            <div style="font-size:9px; color:#555; margin-top:5px;">TARGET: <span id="z-health">DETECTING...</span></div>
+            <div style="font-size:9px; color:#555; margin-top:5px;">BLUE: <span id="blue-base-display">100</span>% | RED: <span id="red-base-display">100</span>%</div>
         </div>
     </div>
 </div>
@@ -77,7 +83,7 @@ let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08;
 const maxWallGridHeight = 8 * blockSize;
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
-let playerHP = 100, playerBaseHP = 100, enemyHP = 100, aiBaseHP = 100, playerGold = 100;
+let playerHP = 100, playerBaseHP = 100, enemyHP = 100, redBaseHP = 100, playerGold = 100;
 let gameActive = true, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
 let playerSpawnPos = new THREE.Vector3(430, 0, 430);
@@ -147,8 +153,6 @@ socket.on('shipHealthUpdate', (data) => {
         document.getElementById('hp-text-ai').innerText = `ENEMY: ${Math.round(enemyHP)}%`;
     } else if (data.team === myTeam) {
         playerHP = data.hp;
-        document.getElementById('hp-fill').style.width = playerHP + '%';
-        document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
     }
 });
 
@@ -519,7 +523,7 @@ function initGameWorld() {
     let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
     let eData = createShip(enemyColor); 
     aiGroup = eData.group; 
-    let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
+    let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-430, 0, -430) : new THREE.Vector3(430, 0, 430);
     aiGroup.position.copy(enemyPos); scene.add(aiGroup);
 
     snakeHead = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshBasicMaterial({ color: 0x0088ff })); 
@@ -571,13 +575,48 @@ function checkCollision(pos) {
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
+    // Player Craft HUD
     const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 1.8; wp.project(camera); 
-    document.getElementById('overhead-ui').style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
-    document.getElementById('overhead-ui').style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
+    const pUi = document.getElementById('overhead-ui');
+    if (wp.z > 1 || Math.abs(wp.x) > 1.2 || Math.abs(wp.y) > 1.2) {
+        pUi.style.display = 'none';
+    } else {
+        pUi.style.display = 'flex';
+        pUi.style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
+        pUi.style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
+    }
 
+    // Opponent Craft HUD (Properly tracked to aiGroup instead of floating/stuck)
     const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); ew.y += 1.8; ew.project(camera); 
-    document.getElementById('opponent-overhead-ui').style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
-    document.getElementById('opponent-overhead-ui').style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
+    const eUi = document.getElementById('opponent-overhead-ui');
+    if (ew.z > 1 || Math.abs(ew.x) > 1.2 || Math.abs(ew.y) > 1.2) {
+        eUi.style.display = 'none';
+    } else {
+        eUi.style.display = 'flex';
+        eUi.style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
+        eUi.style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
+    }
+
+    // Base HUD Tracking
+    const bPos = new THREE.Vector3(460, 2, 460); bPos.project(camera);
+    const bHud = document.getElementById('blue-base-hud');
+    if (bPos.z > 1 || Math.abs(bPos.x) > 1.2 || Math.abs(bPos.y) > 1.2) {
+        bHud.style.display = 'none';
+    } else {
+        bHud.style.display = 'flex';
+        bHud.style.left = `${(bPos.x * .5 + .5) * window.innerWidth}px`;
+        bHud.style.top = `${(-(bPos.y * .5) + .5) * window.innerHeight}px`;
+    }
+
+    const rPos = new THREE.Vector3(-460, 2, -460); rPos.project(camera);
+    const rHud = document.getElementById('red-base-hud');
+    if (rPos.z > 1 || Math.abs(rPos.x) > 1.2 || Math.abs(rPos.y) > 1.2) {
+        rHud.style.display = 'none';
+    } else {
+        rHud.style.display = 'flex';
+        rHud.style.left = `${(rPos.x * .5 + .5) * window.innerWidth}px`;
+        rHud.style.top = `${(-(rPos.y * .5) + .5) * window.innerHeight}px`;
+    }
 }
 
 function updateCounters() {
@@ -600,6 +639,10 @@ function animate() {
     }
 
     document.getElementById('hp-fill').style.width = playerHP + '%'; document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
+    document.getElementById('base-hp-fill').style.width = playerBaseHP + '%'; document.getElementById('base-hp-text').innerText = 'BLUE BASE: ' + Math.round(playerBaseHP) + '%';
+    document.getElementById('ai-base-hp-fill').style.width = redBaseHP + '%'; document.getElementById('ai-base-hp-text').innerText = 'RED BASE: ' + Math.round(redBaseHP) + '%';
+    document.getElementById('blue-base-display').innerText = Math.round(playerBaseHP);
+    document.getElementById('red-base-display').innerText = Math.round(redBaseHP);
     document.getElementById('player-gold').innerText = playerGold;
     
     updateOverheadUI();
@@ -611,6 +654,17 @@ function animate() {
         let r = runners[i];
         if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
         
+        // Base damage check for runners reaching destination
+        let reachedEnemyBase = (r.isYellowRunner && r.group.position.distanceTo(new THREE.Vector3(-460, 0, -460)) < 15) || 
+                               (r.isRedRunner && r.group.position.distanceTo(new THREE.Vector3(460, 0, 460)) < 15);
+        if (reachedEnemyBase) {
+            let targetBaseTeam = r.isYellowRunner ? 'red' : 'blue';
+            if (targetBaseTeam === 'red') redBaseHP = Math.max(0, redBaseHP - 5);
+            else playerBaseHP = Math.max(0, playerBaseHP - 5);
+            r.explode();
+            continue;
+        }
+
         let isEnemyRunner = (myTeam === 'blue' ? !r.isYellowRunner : r.isYellowRunner);
         if (playerGroup.position.distanceTo(r.group.position) < 6.5 && !r.isShattered && isEnemyRunner) {
             r.explode(); playerGold += 1; continue;
@@ -630,7 +684,7 @@ function animate() {
                 if (r.limbs['lArm']) r.limbs['lArm'].rotation.x = Math.sin(t) * 0.6;
                 if (r.limbs['rArm']) r.limbs['rArm'].rotation.x = -Math.sin(t) * 0.6;
                 if (r.limbs['lLeg']) r.limbs['lLeg'].rotation.x = -Math.sin(t) * 0.6;
-                if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = Math.sin(t) * 0.6;
+                if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = -Math.sin(t) * 0.6;
             }
             
             if (r.group.position.distanceTo(tar) < 14) {
@@ -647,6 +701,16 @@ function animate() {
         let sn = snails[i]; 
         if (sn.markedForRemoval) { scene.remove(sn.group); snails.splice(i, 1); continue; }
         
+        let reachedEnemyBase = (sn.isYellowTeam && sn.group.position.distanceTo(new THREE.Vector3(-460, 0, -460)) < 15) || 
+                               (!sn.isYellowTeam && sn.group.position.distanceTo(new THREE.Vector3(460, 0, 460)) < 15);
+        if (reachedEnemyBase) {
+            let targetBaseTeam = sn.isYellowTeam ? 'red' : 'blue';
+            if (targetBaseTeam === 'red') redBaseHP = Math.max(0, redBaseHP - 15);
+            else playerBaseHP = Math.max(0, playerBaseHP - 15);
+            sn.explode();
+            continue;
+        }
+
         let isEnemySnail = (myTeam === 'blue' ? !sn.isYellowTeam : sn.isYellowTeam);
         if (playerGroup.position.distanceTo(sn.group.position) < 7.0 && !sn.isShattered && isEnemySnail) {
             sn.explode(); playerGold += 2; continue;
@@ -667,7 +731,7 @@ function animate() {
             
             if (sn.group.position.distanceTo(tar) < 16) {
                 sn.currentWaypointIndex++;
-                sn.navState = 'SEEK'; sn.followSteps = 0;
+                sn.navState = 'SEEK'; r.followSteps = 0;
                 if (sn.currentWaypointIndex >= sn.waypoints.length) {
                     scene.remove(sn.group); snails.splice(i, 1);
                 }
