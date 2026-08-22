@@ -70,7 +70,7 @@ io.on('connection', (socket) => {
 
             if (gameState[targetTeam].hp <= 0) {
                 gameState[targetTeam].hp = 100;
-                let respawnPos = (targetTeam === 'blue') ? { x: 460, y: 0, z: 460, yaw: 0.785 } : { x: -460, y: 0, z: -460, yaw: -2.356 };
+                let respawnPos = (targetTeam === 'blue') ? { x: 460, y: 1.2, z: 460, yaw: 0.785 } : { x: -460, y: 1.2, z: -460, yaw: -2.356 };
                 
                 io.emit('shipDestroyedAndRespawn', {
                     team: targetTeam,
