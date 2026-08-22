@@ -10,80 +10,97 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
 
-let bluePlayer = null;
-let redPlayer = null;
-let readyStatus = { blue: false, red: false };
-let gameStarted = false;
+// Keep track of rooms and waiting players
+let waitingPlayer = null;
+let rooms = {}; // roomId -> { blue: socketId, red: socketId, ready: {blue: false, red: false}, started: false }
 
 io.on('connection', (socket) => {
-    let assignedTeam = null;
+    console.log(`Player connected: ${socket.id}`);
 
-    if (!bluePlayer) {
-        bluePlayer = socket.id;
+    // Matchmaking logic: Pair players into rooms of 2
+    let assignedRoomId;
+    let assignedTeam;
+
+    if (!waitingPlayer) {
+        // First player in queue waits as Blue
+        waitingPlayer = socket;
+        assignedRoomId = `room_${socket.id}`;
         assignedTeam = 'blue';
-        socket.emit('roleAssign', { team: 'blue' });
-        console.log(`Blue Commander connected: ${socket.id}`);
-    } else if (!redPlayer) {
-        redPlayer = socket.id;
-        assignedTeam = 'red';
-        socket.emit('roleAssign', { team: 'red' });
-        console.log(`Red Commander connected: ${socket.id}`);
+        
+        rooms[assignedRoomId] = {
+            blue: socket.id,
+            red: null,
+            ready: { blue: false, red: false },
+            started: false
+        };
+        socket.roomID = assignedRoomId;
     } else {
-        assignedTeam = 'spectator';
-        socket.emit('roleAssign', { team: 'spectator' });
-        console.log(`Spectator connected: ${socket.id}`);
+        // Second player joins the waiting player as Red, starting a new match room!
+        assignedRoomId = waitingPlayer.roomID;
+        assignedTeam = 'red';
+        
+        rooms[assignedRoomId].red = socket.id;
+        socket.roomID = assignedRoomId;
+
+        // Clear the queue so the next player starts the next room
+        waitingPlayer = null;
     }
 
-    socket.emit('updateReadyStatus', readyStatus);
+    socket.join(assignedRoomId);
+    socket.emit('roleAssign', { team: assignedTeam });
+    
+    // Send initial room ready status
+    io.to(assignedRoomId).emit('updateReadyStatus', rooms[assignedRoomId].ready);
 
     socket.on('playerReady', () => {
-        if (assignedTeam === 'blue' || assignedTeam === 'red') {
-            readyStatus[assignedTeam] = true;
-            io.emit('updateReadyStatus', readyStatus);
+        let room = rooms[socket.roomID];
+        if (room) {
+            if (socket.id === room.blue) room.ready.blue = true;
+            if (socket.id === room.red) room.ready.red = true;
 
-            if (readyStatus.blue && readyStatus.red && !gameStarted) {
-                gameStarted = true;
-                io.emit('startCountdown');
+            io.to(socket.roomID).emit('updateReadyStatus', room.ready);
+
+            if (room.ready.blue && room.ready.red && !room.started) {
+                room.started = true;
+                io.to(socket.roomID).emit('startCountdown');
             }
         }
     });
 
     socket.on('playerMove', (data) => {
-        socket.broadcast.emit('enemyMove', data);
+        socket.to(socket.roomID).emit('enemyMove', data);
     });
 
     socket.on('playerFire', (data) => {
-        socket.broadcast.emit('enemyFire', data);
+        socket.to(socket.roomID).emit('enemyFire', data);
     });
 
     socket.on('placeBlock', (data) => {
-        socket.broadcast.emit('blockPlaced', data);
+        socket.to(socket.roomID).emit('blockPlaced', data);
     });
 
     socket.on('spawnUnit', (data) => {
-        io.emit('unitSpawned', data);
+        io.to(socket.roomID).emit('unitSpawned', data);
     });
 
-    // Pure Stun/Freeze broadcast—no health, no invisible respawns!
     socket.on('shipHit', (data) => {
-        io.emit('applyStun', { team: data.targetTeam });
+        io.to(socket.roomID).emit('applyStun', { team: data.targetTeam });
     });
 
     socket.on('disconnect', () => {
-        if (socket.id === bluePlayer) {
-            bluePlayer = null;
-            readyStatus.blue = false;
+        console.log(`Player disconnected: ${socket.id}`);
+        if (waitingPlayer === socket) {
+            waitingPlayer = null;
         }
-        if (socket.id === redPlayer) {
-            redPlayer = null;
-            readyStatus.red = false;
+
+        let roomId = socket.roomID;
+        if (roomId && rooms[roomId]) {
+            io.to(roomId).emit('playerLeft', { id: socket.id });
+            delete rooms[roomId];
         }
-        gameStarted = false;
-        io.emit('updateReadyStatus', readyStatus);
-        io.emit('playerLeft', { id: socket.id });
     });
 });
 
 server.listen(PORT, () => {
-    console.log(`Vanguard multiplayer server listening on port ${PORT}`);
+    console.log(`Global Vanguard matchmaking server listening on port ${PORT}`);
 });
