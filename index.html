@@ -24,13 +24,8 @@
         
         #overhead-ui, #opponent-overhead-ui { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
         
-        .hp-bar, .hp-bar-ai { position: relative; width: 100px; height: 12px; background: #ccc; border: 1px solid #888; border-radius: 2px; overflow: hidden; box-sizing: border-box; }
-        .hp-bar-ai { width: 100px; border-color: #cc2222; background: #f0c0c0; }
-        
-        #hp-fill { height: 100%; background: #0077ff; transition: width 0.1s; }
-        #ai-hp-fill { height: 100%; background: #cc2222; transition: width 0.1s; }
-        
-        .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 8px; font-weight: bold; text-shadow: 1px 1px 2px #000; text-transform: uppercase; letter-spacing: 0.5px; z-index: 2; box-sizing: border-box; }
+        .status-badge { background: #0088ff; color: #fff; padding: 2px 6px; font-size: 9px; font-weight: bold; border-radius: 2px; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,0,0,0.5); }
+        .status-badge-ai { background: #cc2222; color: #fff; padding: 2px 6px; font-size: 9px; font-weight: bold; border-radius: 2px; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,0,0,0.5); }
 
         #lobby-screen, #countdown-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-family: monospace; text-transform: uppercase; }
         #countdown-screen { display: none; font-size: 72px; font-weight: bold; color: #00ff88; text-shadow: 0 0 20px rgba(0,255,136,0.8); }
@@ -77,11 +72,11 @@
 </div>
 
 <div id="overhead-ui">
-    <div class="hp-bar"><div id="hp-fill" style="width: 100%;"></div><div id="hp-text" class="hp-text">VESSEL: 100%</div></div>
+    <div id="player-status-badge" class="status-badge">VESSEL: ACTIVE</div>
 </div>
 
 <div id="opponent-overhead-ui">
-    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="ai-text-ai" class="hp-text">ENEMY: 100%</div></div>
+    <div id="opponent-status-badge" class="status-badge-ai">ENEMY: ACTIVE</div>
 </div>
 
 <div id="ui-layer">
@@ -92,7 +87,7 @@
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
-                [W/A/S/D] MOVE | [MOUSE] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!<br><span style="color:#00aa44;">0% HEALTH = VESSEL FROZEN!</span>
+                [W/A/S/D] MOVE | [MOUSE] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!<br><span style="color:#ff3333;">GETTING SHOT STUNS YOU FOR 3 SECONDS!</span>
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
@@ -113,7 +108,7 @@ let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08;
 const maxWallGridHeight = 8 * blockSize;
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
-let playerHP = 100, enemyHP = 100, playerGold = 100;
+let playerFrozenUntil = 0, enemyFrozenUntil = 0, playerGold = 100;
 let gameActive = false, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
 let playerSpawnPos = new THREE.Vector3(430, 0, 430);
@@ -182,7 +177,7 @@ socket.on('enemyMove', (data) => {
     if (aiGroup) {
         aiGroup.position.set(data.x, data.y, data.z);
         aiGroup.rotation.y = data.yaw;
-        aiGroup.visible = true; // Always keep visible!
+        aiGroup.visible = true;
     }
 });
 
@@ -219,18 +214,13 @@ socket.on('unitSpawned', (data) => {
     }
 });
 
-socket.on('shipHealthUpdate', (data) => {
+// Stun / Freeze handler when hit by a bullet
+socket.on('shipHit', (data) => {
     let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
-    if (data.team === opponentTeam) {
-        enemyHP = Math.max(0, Math.min(100, data.hp));
-        document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
-        document.getElementById('hp-text-ai').innerText = enemyHP > 0 ? `ENEMY: ${Math.round(enemyHP)}%` : 'ENEMY: FROZEN';
-        if (aiGroup) aiGroup.visible = true; // NEVER hide enemy mesh!
-    } else if (data.team === myTeam) {
-        playerHP = Math.max(0, Math.min(100, data.hp));
-        document.getElementById('hp-fill').style.width = playerHP + '%';
-        document.getElementById('hp-text').innerText = playerHP > 0 ? 'VESSEL: ' + Math.round(playerHP) + '%' : 'VESSEL: FROZEN';
-        if (playerGroup) playerGroup.visible = true; // NEVER hide player mesh!
+    if (data.targetTeam === opponentTeam) {
+        enemyFrozenUntil = Date.now() + 3000; // Freeze enemy for 3 seconds
+    } else if (data.targetTeam === myTeam) {
+        playerFrozenUntil = Date.now() + 3000; // Freeze local player for 3 seconds
     }
 });
 
@@ -355,7 +345,8 @@ class CrimsonSnail {
 }
 
 function tryRecruitPlayerSnail() {
-    if (!gameActive || playerHP <= 0) return; let n = Date.now(); if (n - lastRecruitTime < recruitCooldown) return;
+    if (!gameActive || Date.now() < playerFrozenUntil) return; 
+    let n = Date.now(); if (n - lastRecruitTime < recruitCooldown) return;
     if (playerGold >= 2) { 
         playerGold -= 2; 
         socket.emit('spawnUnit', { type: 'snail', team: myTeam });
@@ -517,7 +508,7 @@ function calculatePlacementTarget(hit) {
 }
 
 function handlePlacement() {
-    if (playerHP <= 0) return; // Cannot build if frozen
+    if (Date.now() < playerFrozenUntil) return; // Cannot build while frozen
     raycaster.setFromCamera(mouse, camera); 
     const hits = raycaster.intersectObjects([floor, ...wallMeshes, ...userBlocks], true);
     if (hits.length > 0) {
@@ -536,7 +527,7 @@ function handlePlacement() {
 }
 
 function fireWeapon() {
-    if (playerHP <= 0) return; // Cannot fire if frozen
+    if (Date.now() < playerFrozenUntil) return; // Cannot fire while frozen
     turrets.forEach(t => {
         const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0x0066ff : 0xff3333 })), wp = new THREE.Vector3();
         t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); raycaster.setFromCamera(mouse, camera);
@@ -571,7 +562,7 @@ function initGameWorld() {
     const blueWallXMat = new THREE.MeshBasicMaterial({ map: blueWallXTex, side: THREE.DoubleSide });
 
     wallMeshes = []; const lim = 498;
-    [ { z: -lim, r: 0, mat: redWallZMat, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZMat, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
+    [ { z: -lim, r: 0, mat: redWallZMat, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZTex, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
         const wl = new THREE.Mesh(new THREE.PlaneGeometry(1000, 100), w.mat); 
         if (w.z) wl.position.z = w.z; if (w.x) wl.position.x = w.x; wl.position.y = 50; wl.rotation.y = w.r; wl.userData.wallTheme = w.theme;
         scene.add(wl); wallMeshes.push(wl);
@@ -627,7 +618,7 @@ function init() {
 }
 
 window.addEventListener('mousedown', (e) => {
-    if (!gameActive || playerHP <= 0) return; 
+    if (!gameActive || Date.now() < playerFrozenUntil) return; 
     if (e.button === 0) isFiring = true;
     if (e.button === 2) {
         raycaster.setFromCamera(mouse, camera); 
@@ -644,7 +635,7 @@ window.addEventListener('mousedown', (e) => {
 window.addEventListener('mouseup', (e) => { if(e.button === 0) isFiring = false; if(e.button === 2) { isDragging = false; snakeHead.visible = false; }});
 window.addEventListener('mousemove', (e) => { mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1; document.getElementById('cursor-ui').style.left = e.clientX + 'px'; document.getElementById('cursor-ui').style.top = e.clientY + 'px'; });
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
-window.addEventListener('keydown', e => { if (!gameActive || playerHP <= 0) return; keys[e.code] = true; if (e.code === 'KeyG') tryRecruitPlayerSnail(); });
+window.addEventListener('keydown', e => { if (!gameActive || Date.now() < playerFrozenUntil) return; keys[e.code] = true; if (e.code === 'KeyG') tryRecruitPlayerSnail(); });
 window.addEventListener('keyup', e => keys[e.code] = false);
 window.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -695,8 +686,28 @@ function updateCounters() {
 function animate() {
     requestAnimationFrame(animate); if (!renderer || !scene || !camera || !gameActive) return;
     
-    document.getElementById('hp-fill').style.width = playerHP + '%'; 
-    document.getElementById('hp-text').innerText = playerHP > 0 ? 'VESSEL: ' + Math.round(playerHP) + '%' : 'VESSEL: FROZEN';
+    // Check if frozen state is active
+    let isPlayerFrozen = Date.now() < playerFrozenUntil;
+    let isEnemyFrozen = Date.now() < enemyFrozenUntil;
+
+    let pBadge = document.getElementById('player-status-badge');
+    if (isPlayerFrozen) {
+        pBadge.innerText = 'VESSEL: STUNNED (FROZEN)';
+        pBadge.style.background = '#ffaa00';
+    } else {
+        pBadge.innerText = 'VESSEL: ACTIVE';
+        pBadge.style.background = '#0088ff';
+    }
+
+    let eBadge = document.getElementById('opponent-status-badge');
+    if (isEnemyFrozen) {
+        eBadge.innerText = 'ENEMY: STUNNED (FROZEN)';
+        eBadge.style.background = '#ffaa00';
+    } else {
+        eBadge.innerText = 'ENEMY: ACTIVE';
+        eBadge.style.background = '#cc2222';
+    }
+
     document.getElementById('player-gold').innerText = playerGold;
     
     updateOverheadUI();
@@ -798,8 +809,8 @@ function animate() {
         }
     }
 
-    // Only allow movement if vessel is NOT frozen (HP > 0)
-    if (playerHP > 0) {
+    // Only allow movement if NOT frozen
+    if (!isPlayerFrozen) {
         if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); playerGroup.rotation.y = yaw;
         let move = new THREE.Vector3(); if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1; if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
         if (move.length() > 0) { 
@@ -815,7 +826,7 @@ function animate() {
         }
     }
 
-    if (isDragging && playerHP > 0) {
+    if (isDragging && !isPlayerFrozen) {
         let fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), sd = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
         if (keys['KeyW']) depthOffset += 0.4; if (keys['KeyS']) depthOffset -= 0.4; if (keys['KeyA']) horizOffset -= 0.4; if (keys['KeyD']) horizOffset += 0.4;
         let rawOff = new THREE.Vector3().addScaledVector(fwd, depthOffset * blockSize).addScaledVector(sd, horizOffset * blockSize);
@@ -844,9 +855,13 @@ function animate() {
         if (b.userData.life <= 0) { scene.remove(b); bullets.splice(i, 1); continue; }
 
         let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
-        // Only allow hitting opponent if they are NOT frozen (enemyHP > 0)
-        if (b.userData.isPlayerBullet && aiGroup && enemyHP > 0 && b.position.distanceTo(aiGroup.position) < 4) {
+        // If bullet hits opponent, trigger a stun/freeze event on the server
+        if (b.userData.isPlayerBullet && aiGroup && aiGroup.visible && b.position.distanceTo(aiGroup.position) < 4) {
             socket.emit('shipHit', { targetTeam: opponentTeam, damage: 10 });
+            b.userData.life = 0;
+        }
+        if (!b.userData.isPlayerBullet && playerGroup && playerGroup.visible && b.position.distanceTo(playerGroup.position) < 4) {
+            playerFrozenUntil = Date.now() + 3000; // Local freeze for 3 seconds
             b.userData.life = 0;
         }
 
