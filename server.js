@@ -13,7 +13,6 @@ let players = {};
 let blueSocketId = null;
 let redSocketId = null;
 
-// Authoritative game state tracking bases and vessels
 let gameState = {
     blue: { hp: 100, baseHp: 100 },
     red: { hp: 100, baseHp: 100 }
@@ -51,16 +50,14 @@ io.on('connection', (socket) => {
         io.emit('unitSpawned', data);
     });
 
-    // Synchronize Base Damage when units breach a base
     socket.on('damageBase', (data) => {
-        let targetTeam = data.team; // 'blue' or 'red' base
+        let targetTeam = data.team;
         if (gameState[targetTeam]) {
             gameState[targetTeam].baseHp = Math.max(0, gameState[targetTeam].baseHp - data.amount);
             io.emit('baseDamageUpdate', { team: targetTeam, baseHp: gameState[targetTeam].baseHp });
         }
     });
 
-    // Authoritative Craft Hit & Tactical Respawn Sync
     socket.on('shipHit', (data) => {
         let targetTeam = data.targetTeam;
         if (gameState[targetTeam]) {
@@ -73,7 +70,8 @@ io.on('connection', (socket) => {
 
             if (gameState[targetTeam].hp <= 0) {
                 gameState[targetTeam].hp = 100;
-                let respawnPos = (targetTeam === 'blue') ? { x: 460, y: 0, z: 460, yaw: 0.785 } : { x: -460, y: 0, z: -460, yaw: -2.356 };
+                // Respawn further inside the safe base clearing away from the pad
+                let respawnPos = (targetTeam === 'blue') ? { x: 430, y: 1.2, z: 430, yaw: 0.785 } : { x: -430, y: 1.2, z: -430, yaw: -2.356 };
                 
                 io.emit('shipDestroyedAndRespawn', {
                     team: targetTeam,
