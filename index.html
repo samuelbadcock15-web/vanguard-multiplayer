@@ -32,7 +32,6 @@
         
         .hp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 8px; font-weight: bold; text-shadow: 1px 1px 2px #000; text-transform: uppercase; letter-spacing: 0.5px; z-index: 2; box-sizing: border-box; }
 
-        /* Lobby & Countdown Overlay Screens */
         #lobby-screen, #countdown-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-family: monospace; text-transform: uppercase; }
         #countdown-screen { display: none; font-size: 72px; font-weight: bold; color: #00ff88; text-shadow: 0 0 20px rgba(0,255,136,0.8); }
         .lobby-box { background: #111; border: 3px solid #0088ff; padding: 30px; border-radius: 6px; text-align: center; box-shadow: 0 0 30px rgba(0,136,255,0.5); min-width: 350px; }
@@ -55,7 +54,7 @@
 
 <div id="lobby-screen">
     <div class="lobby-box">
-        <h1 id="assigned-team-title">VANGUARD COMBAT LOBBY</h1>
+        <h1>VANGUARD COMBAT LOBBY</h1>
         <p id="lobby-status">
             TEAM: <span id="team-name-display" style="color:#0088ff; font-weight:bold;">CONNECTING...</span><br><br>
             BLUE COMMANDER: <span id="blue-ready" style="color:red;">NOT READY</span><br>
@@ -183,7 +182,6 @@ socket.on('enemyMove', (data) => {
     if (aiGroup) {
         aiGroup.position.set(data.x, data.y, data.z);
         aiGroup.rotation.y = data.yaw;
-        if (enemyHP > 0) aiGroup.visible = true;
     }
 });
 
@@ -226,12 +224,10 @@ socket.on('shipHealthUpdate', (data) => {
         enemyHP = Math.max(0, Math.min(100, data.hp));
         document.getElementById('ai-hp-fill').style.width = enemyHP + '%';
         document.getElementById('hp-text-ai').innerText = `ENEMY: ${Math.round(enemyHP)}%`;
-        if (aiGroup) aiGroup.visible = (enemyHP > 0);
     } else if (data.team === myTeam) {
         playerHP = Math.max(0, Math.min(100, data.hp));
         document.getElementById('hp-fill').style.width = playerHP + '%';
         document.getElementById('hp-text').innerText = 'VESSEL: ' + Math.round(playerHP) + '%';
-        if (playerGroup) playerGroup.visible = (playerHP > 0);
     }
 });
 
