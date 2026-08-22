@@ -7,9 +7,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; background: #e0e8f0; overflow: hidden; font-family: monospace; width: 100%; height: 100%; }
+        body, html { margin: 0; padding: 0; background: #e0e8f0; overflow: hidden; font-family: monospace; width: 100%; height: 100%; touch-action: none; }
         #ui-layer { position: fixed; top: 20px; left: 20px; color: #111; pointer-events: none; z-index: 10; font-size: 11px; }
-        #cursor-ui { position: absolute; width: 40px; height: 40px; transform: translate(-50%, -50%); pointer-events: none; z-index: 9999; }
+        #cursor-ui { position: absolute; width: 40px; height: 40px; transform: translate(-50%, -50%); pointer-events: none; z-index: 9999; display: none; }
         .cursor-v, .cursor-h { position: absolute; background: #0088ff; box-shadow: 0 0 8px rgba(0, 136, 255, 0.6); }
         .cursor-v { left: 50%; width: 2px; height: 100%; }
         .cursor-h { top: 50%; width: 100%; height: 2px; }
@@ -35,6 +35,12 @@
         .ready-btn { background: #ffaa00; color: #000; border: none; padding: 12px 24px; font-weight: bold; cursor: pointer; font-family: monospace; border-radius: 4px; font-size: 14px; text-transform: uppercase; }
         .ready-btn:hover { background: #ffcc00; }
         .ready-btn:disabled { background: #444; color: #888; cursor: not-allowed; }
+
+        /* On-Screen Touch Buttons for Mobile */
+        #mobile-controls { position: fixed; bottom: 20px; left: 0; width: 100%; display: flex; justify-content: space-between; padding: 0 20px; box-sizing: border-box; z-index: 100; pointer-events: none; }
+        .mob-btn-group { display: flex; gap: 10px; pointer-events: auto; }
+        .mob-btn { background: rgba(0, 136, 255, 0.8); color: #fff; border: 2px solid #fff; padding: 15px 20px; font-size: 14px; font-weight: bold; border-radius: 8px; text-transform: uppercase; font-family: monospace; user-select: none; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .mob-btn:active { background: rgba(0, 85, 204, 1); transform: scale(0.95); }
 
         #game-over-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.82); z-index: 1000; display: none; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-family: monospace; text-transform: uppercase; }
         .game-over-box { background: #111; border: 3px solid #0088ff; padding: 30px; border-radius: 6px; text-align: center; box-shadow: 0 0 30px rgba(0,136,255,0.5); min-width: 320px; }
@@ -87,11 +93,22 @@
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
-                [W/A/S/D] MOVE | [MOUSE] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!<br><span style="color:#ff3333;">GETTING SHOT STUNS YOU FOR 3 SECONDS!</span>
+                [SWIPE] LOOK/TURN | [TAP] FIRE | [HOLD] MOVE<br>[G] SPAWN SNAIL (2G) | TOUCH BUTTONS BELOW FOR MOVEMENT/SNAILS
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
         </div>
+    </div>
+</div>
+
+<!-- On-Screen Mobile Action Buttons -->
+<div id="mobile-controls">
+    <div class="mob-btn-group">
+        <button class="mob-btn" id="btn-forward" ontouchstart="keys['KeyW']=true" ontouchend="keys['KeyW']=false" onmousedown="keys['KeyW']=true" onmouseup="keys['KeyW']=false">FWD</button>
+        <button class="mob-btn" id="btn-back" ontouchstart="keys['KeyS']=true" ontouchend="keys['KeyS']=false" onmousedown="keys['KeyS']=true" onmouseup="keys['KeyS']=false">REV</button>
+    </div>
+    <div class="mob-btn-group">
+        <button class="mob-btn" style="background:#b8860b;" onclick="tryRecruitPlayerSnail()">SNAIL (2G)</button>
     </div>
 </div>
 
@@ -114,6 +131,10 @@ let lastRecruitTime = 0; const recruitCooldown = 500;
 let playerSpawnPos = new THREE.Vector3(430, 0, 430);
 let aiGroup, aiSirenL, aiSirenR, aiPointLight, aiTurrets = [];
 let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
+
+// Touch Swipe variables
+let touchStartX = 0;
+let isSwiping = false;
 
 socket.on('roleAssign', (data) => {
     myTeam = data.team;
@@ -487,55 +508,16 @@ function createShip(col) {
     return { group: g, sL, sR, light: lt, turrets: turs };
 }
 
-function calculatePlacementTarget(hit) {
-    let tPos = new THREE.Vector3();
-    if (hit.object === floor) {
-        tPos.set(Math.round(hit.point.x / blockSize) * blockSize, blockSize / 2, Math.round(hit.point.z / blockSize) * blockSize);
-    } else if (wallMeshes.includes(hit.object)) {
-        if (hit.point.y > maxWallGridHeight) return null;
-        let norm = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : new THREE.Vector3();
-        let pt = hit.point.clone().addScaledVector(norm, blockSize / 2);
-        let snappedY = Math.round((pt.y - blockSize / 2) / blockSize) * blockSize + blockSize / 2;
-        if (snappedY > maxWallGridHeight) return null;
-        tPos.set(Math.round(pt.x / blockSize) * blockSize, Math.max(blockSize / 2, snappedY), Math.round(pt.z / blockSize) * blockSize);
-    } else {
-        let r = hit.object; while(r.parent && r.parent !== scene) r = r.parent;
-        tPos.copy(r.position).add(hit.face.normal.clone().multiplyScalar(blockSize));
-    }
-    return tPos;
-}
-
-function handlePlacement() {
-    if (Date.now() < playerFrozenUntil) return; 
-    raycaster.setFromCamera(mouse, camera); 
-    const hits = raycaster.intersectObjects([floor, ...wallMeshes, ...userBlocks], true);
-    if (hits.length > 0) {
-        const h = hits[0];
-        if (wallMeshes.includes(h.object) && h.object.userData.wallTheme !== myTeam) return;
-        let tPos = calculatePlacementTarget(h);
-        if (!tPos || !canBuildHere(tPos, true)) return;
-        const k = `${Math.round(tPos.x)},${Math.round(tPos.y)},${Math.round(tPos.z)}`;
-        if (!existingCubes.has(k)) { 
-            const col = myTeam === 'blue' ? 0x0077ff : 0xd03333;
-            const b = createCube(tPos, col, 0x000000, col); 
-            scene.add(b); userBlocks.push(b); existingCubes.set(k, b); 
-            socket.emit('placeBlock', { x: tPos.x, y: tPos.y, z: tPos.z });
-        }
-    }
-}
-
 function fireWeapon() {
     if (Date.now() < playerFrozenUntil) return; 
     turrets.forEach(t => {
         const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0x0066ff : 0xff3333 })), wp = new THREE.Vector3();
-        t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); raycaster.setFromCamera(mouse, camera);
+        t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); 
         
-        // aiGroup is completely omitted here so bullets can never interact with or delete the enemy ship mesh!
-        const pool = [scene, floor, recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
-        stalkers.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
-        runners.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
-        snails.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
-        const hits = raycaster.intersectObjects(pool, true); if (hits.length > 0) { hits.sort((a, b) => a.distance - b.distance); tar.copy(hits[0].point); } else { raycaster.ray.at(200, tar); }
+        // Shoot straight ahead or target forward vector on mobile tap
+        let fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+        tar.copy(wp).addScaledVector(fwd, 150);
+
         b.lookAt(tar); 
         let vel = tar.sub(wp).normalize().multiplyScalar(6);
         b.userData.velocity = vel; b.userData.life = 120; b.userData.isPlayerBullet = true; scene.add(b); bullets.push(b);
@@ -605,7 +587,7 @@ function initGameWorld() {
     let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-430, 0, -430) : new THREE.Vector3(430, 0, 430);
     aiGroup.position.copy(enemyPos); scene.add(aiGroup);
 
-    aiGroup.visible = true; // Permanently lock visibility on
+    aiGroup.visible = true;
 
     snakeHead = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshBasicMaterial({ color: 0x0088ff })); 
     snakeHead.visible = false; scene.add(snakeHead);
@@ -619,23 +601,37 @@ function init() {
     initGameWorld();
 }
 
-window.addEventListener('mousedown', (e) => {
-    if (!gameActive || Date.now() < playerFrozenUntil) return; 
-    if (e.button === 0) isFiring = true;
-    if (e.button === 2) {
-        raycaster.setFromCamera(mouse, camera); 
-        const hits = raycaster.intersectObjects([floor, ...wallMeshes, ...userBlocks], true);
-        if (hits.length > 0) {
-            const h = hits[0];
-            if (wallMeshes.includes(h.object) && h.object.userData.wallTheme !== myTeam) return;
-            let ptTarget = calculatePlacementTarget(h); if (!ptTarget) return;
-            isDragging = true; depthOffset = 0; horizOffset = 0; dragStartMouse.set(mouse.x, mouse.y);
-            startPoint.copy(ptTarget);
-        }
+// Touch & Mouse Swipe / Tap Controls for Mobile & Desktop
+window.addEventListener('touchstart', (e) => {
+    if (!gameActive || Date.now() < playerFrozenUntil) return;
+    if (e.touches.length === 1) {
+        touchStartX = e.touches[0].clientX;
+        isSwiping = true;
+    }
+}, {passive: true});
+
+window.addEventListener('touchmove', (e) => {
+    if (!isSwiping || !gameActive || Date.now() < playerFrozenUntil) return;
+    let touchX = e.touches[0].clientX;
+    let diff = touchX - touchStartX;
+    yaw -= diff * 0.005; // Swipe to turn camera/ship
+    touchStartX = touchX;
+}, {passive: true});
+
+window.addEventListener('touchend', (e) => {
+    isSwiping = false;
+    // Tap to shoot if it was a quick tap
+    if (gameActive && Date.now() >= playerFrozenUntil) {
+        fireWeapon();
     }
 });
-window.addEventListener('mouseup', (e) => { if(e.button === 0) isFiring = false; if(e.button === 2) { isDragging = false; snakeHead.visible = false; }});
-window.addEventListener('mousemove', (e) => { mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1; document.getElementById('cursor-ui').style.left = e.clientX + 'px'; document.getElementById('cursor-ui').style.top = e.clientY + 'px'; });
+
+// Desktop Mouse fallback
+window.addEventListener('mousedown', (e) => {
+    if (!gameActive || Date.now() < playerFrozenUntil) return; 
+    if (e.button === 0) fireWeapon(); // Click to shoot
+});
+
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
 window.addEventListener('keydown', e => { if (!gameActive || Date.now() < playerFrozenUntil) return; keys[e.code] = true; if (e.code === 'KeyG') tryRecruitPlayerSnail(); });
 window.addEventListener('keyup', e => keys[e.code] = false);
@@ -811,7 +807,7 @@ function animate() {
     }
 
     if (!isPlayerFrozen) {
-        if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); playerGroup.rotation.y = yaw;
+        playerGroup.rotation.y = yaw;
         let move = new THREE.Vector3(); if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1; if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
         if (move.length() > 0) { 
             move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion); 
@@ -819,35 +815,10 @@ function animate() {
                 playerGroup.position.x += move.x; playerGroup.position.z += move.z; 
             } 
         }
-        if (isFiring && fireTimer++ % 7 === 0) fireWeapon();
         
-        if (move.length() > 0 || Math.abs(mouse.x) > 0.3) {
+        if (move.length() > 0) {
             socket.emit('playerMove', { x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z, yaw: yaw });
         }
-    }
-
-    if (isDragging && !isPlayerFrozen) {
-        let fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), sd = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-        if (keys['KeyW']) depthOffset += 0.4; if (keys['KeyS']) depthOffset -= 0.4; if (keys['KeyA']) horizOffset -= 0.4; if (keys['KeyD']) horizOffset += 0.4;
-        let rawOff = new THREE.Vector3().addScaledVector(fwd, depthOffset * blockSize).addScaledVector(sd, horizOffset * blockSize);
-        const stepsY = Math.floor(Math.abs(mouse.y - dragStartMouse.y) * 15), signY = Math.sign(mouse.y - dragStartMouse.y);
-        if ((rawOff.length() > blockSize * 0.8) || (stepsY > 0)) {
-            let lk = new THREE.Vector3(0, 0, 0); if (Math.abs(rawOff.x) > Math.abs(rawOff.z)) { lk.x = Math.round(rawOff.x / blockSize) * blockSize; } else { lk.z = Math.round(rawOff.z / blockSize) * blockSize; }
-            let lastP = startPoint.clone();
-            for (let i = 0; i <= stepsY; i++) {
-                const p = startPoint.clone(); p.y += i * signY * blockSize; p.x += lk.x; p.z += lk.z;
-                if (p.y >= 2 && canBuildHere(p, true)) { 
-                    const k = `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`; 
-                    if (!existingCubes.has(k)) { 
-                        const col = myTeam === 'blue' ? 0x0077ff : 0xd03333;
-                        const c = createCube(p, col, 0x000000, col); 
-                        scene.add(c); userBlocks.push(c); existingCubes.set(k, c); 
-                        socket.emit('placeBlock', { x: p.x, y: p.y, z: p.z });
-                    } 
-                    lastP.copy(p); 
-                }
-            } snakeHead.position.copy(lastP).add(new THREE.Vector3(0, 3, 0)); snakeHead.visible = true;
-        } else { handlePlacement(); }
     }
 
     for(let i = bullets.length - 1; i >= 0; i--) {
@@ -861,7 +832,6 @@ function animate() {
             b.userData.life = 0;
         }
 
-        // aiGroup is completely removed from the collision pool array, making it physically impossible for bullets to delete or hide the craft
         let pool = [recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
         stalkers.forEach(s => { if(!s.isShattered) pool.push(s.group); });
         runners.forEach(s => { if(!s.isShattered) pool.push(s.group); });
