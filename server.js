@@ -13,8 +13,9 @@ app.use(express.static(__dirname));
 let players = {};
 let bluePlayer = null;
 let redPlayer = null;
+let readyStatus = { blue: false, red: false };
+let gameStarted = false;
 
-// Track both players' health states on the server with strict bounds
 let gameStates = {
     blue: { hp: 100 },
     red: { hp: 100 }
@@ -37,6 +38,22 @@ io.on('connection', (socket) => {
         console.log(`Spectator connected: ${socket.id}`);
     }
 
+    socket.on('playerReady', (data) => {
+        if (players[socket.id]) {
+            let team = players[socket.id].team;
+            if (team === 'blue' || team === 'red') {
+                readyStatus[team] = true;
+                io.emit('updateReadyStatus', readyStatus);
+
+                // If both players are ready, trigger countdown
+                if (readyStatus.blue && readyStatus.red && !gameStarted) {
+                    gameStarted = true;
+                    io.emit('startCountdown');
+                }
+            }
+        }
+    });
+
     socket.on('playerMove', (data) => {
         socket.broadcast.emit('enemyMove', data);
     });
@@ -53,12 +70,10 @@ io.on('connection', (socket) => {
         io.emit('unitSpawned', data);
     });
 
-    // Strictly clamped damage tracking to prevent 170% bugs
     socket.on('shipHit', (data) => {
         let targetTeam = data.targetTeam;
         if (gameStates[targetTeam]) {
             if (data.damage < 0) {
-                // Reset/Heal trigger
                 gameStates[targetTeam].hp = 100;
             } else {
                 gameStates[targetTeam].hp = Math.max(0, Math.min(100, gameStates[targetTeam].hp - data.damage));
@@ -80,6 +95,8 @@ io.on('connection', (socket) => {
         if (socket.id === bluePlayer) bluePlayer = null;
         if (socket.id === redPlayer) redPlayer = null;
         delete players[socket.id];
+        readyStatus = { blue: false, red: false };
+        gameStarted = false;
         io.emit('playerLeft', { id: socket.id });
     });
 });
