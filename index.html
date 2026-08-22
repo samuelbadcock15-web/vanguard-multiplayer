@@ -43,7 +43,7 @@
 </div>
 
 <div id="opponent-overhead-ui">
-    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="hp-text-ai" class="hp-text">ENEMY: 100%</div></div>
+    <div class="hp-bar-ai"><div id="ai-hp-fill" style="width: 100%;"></div><div id="ai-text-ai" class="hp-text">ENEMY: 100%</div></div>
 </div>
 
 <div id="blue-base-hud">
@@ -136,12 +136,12 @@ socket.on('blockPlaced', (data) => {
 
 socket.on('unitSpawned', (data) => {
     if (data.type === 'snail') {
-        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(460, 0, 460));
-        else spawnRedSnail(new THREE.Vector3(-460, 0, -460));
+        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(465, 0, 465));
+        else spawnRedSnail(new THREE.Vector3(-465, 0, -465));
     }
     if (data.type === 'runner') {
-        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(490, 0, 490));
-        else spawnRedRunner(new THREE.Vector3(-490, 0, -490));
+        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(430, 0, 430));
+        else spawnRedRunner(new THREE.Vector3(-430, 0, -430));
     }
 });
 
@@ -295,7 +295,7 @@ function spawnYellowSnail(pos) {
     playerSnailsSpawned++; 
     let sn = new CrimsonSnail(0x0077ff, true); 
     sn.group.position.copy(pos); 
-    sn.waypoints = [new THREE.Vector3(460, 0, 460), new THREE.Vector3(-460, 0, -460)]; 
+    sn.waypoints = [new THREE.Vector3(-460, 0, -460)]; 
     snails.push(sn); 
 }
 
@@ -303,21 +303,21 @@ function spawnRedSnail(pos) {
     aiSnailsSpawned++; 
     let sn = new CrimsonSnail(0xcc2222, false); 
     sn.group.position.copy(pos); 
-    sn.waypoints = [new THREE.Vector3(-460, 0, -460), new THREE.Vector3(460, 0, 460)]; 
+    sn.waypoints = [new THREE.Vector3(460, 0, 460)]; 
     snails.push(sn); 
 }
 
 function spawnYellowRunner(pos) { 
     let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(490, 0, 490), new THREE.Vector3(-490, 0, 490), new THREE.Vector3(-490, 0, -490)]; 
+    r.waypoints = [new THREE.Vector3(-460, 0, -460)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
 function spawnRedRunner(pos) { 
     let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); 
     r.group.position.copy(pos); 
-    r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, 490)]; 
+    r.waypoints = [new THREE.Vector3(460, 0, 460)]; 
     r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
 }
 
@@ -510,8 +510,8 @@ function initGameWorld() {
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
 
     stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; existingCubes.clear();
-    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
-    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
+    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-460, 0, -460);
+    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(460, 0, 460);
 
     sirenGeo = new THREE.BoxGeometry(0.7, 0.25, 0.5);
     let myColor = myTeam === 'blue' ? 0x0088ff : 0xcc2222;
@@ -575,7 +575,6 @@ function checkCollision(pos) {
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
-    // Player Craft HUD
     const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 1.8; wp.project(camera); 
     const pUi = document.getElementById('overhead-ui');
     if (wp.z > 1 || Math.abs(wp.x) > 1.2 || Math.abs(wp.y) > 1.2) {
@@ -586,7 +585,6 @@ function updateOverheadUI() {
         pUi.style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
     }
 
-    // Opponent Craft HUD (Properly tracked to aiGroup instead of floating/stuck)
     const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); ew.y += 1.8; ew.project(camera); 
     const eUi = document.getElementById('opponent-overhead-ui');
     if (ew.z > 1 || Math.abs(ew.x) > 1.2 || Math.abs(ew.y) > 1.2) {
@@ -597,7 +595,6 @@ function updateOverheadUI() {
         eUi.style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
     }
 
-    // Base HUD Tracking
     const bPos = new THREE.Vector3(460, 2, 460); bPos.project(camera);
     const bHud = document.getElementById('blue-base-hud');
     if (bPos.z > 1 || Math.abs(bPos.x) > 1.2 || Math.abs(bPos.y) > 1.2) {
@@ -654,9 +651,8 @@ function animate() {
         let r = runners[i];
         if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
         
-        // Base damage check for runners reaching destination
-        let reachedEnemyBase = (r.isYellowRunner && r.group.position.distanceTo(new THREE.Vector3(-460, 0, -460)) < 15) || 
-                               (r.isRedRunner && r.group.position.distanceTo(new THREE.Vector3(460, 0, 460)) < 15);
+        let targetBasePos = r.isYellowRunner ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
+        let reachedEnemyBase = r.group.position.distanceTo(targetBasePos) < 18;
         if (reachedEnemyBase) {
             let targetBaseTeam = r.isYellowRunner ? 'red' : 'blue';
             if (targetBaseTeam === 'red') redBaseHP = Math.max(0, redBaseHP - 5);
@@ -684,14 +680,14 @@ function animate() {
                 if (r.limbs['lArm']) r.limbs['lArm'].rotation.x = Math.sin(t) * 0.6;
                 if (r.limbs['rArm']) r.limbs['rArm'].rotation.x = -Math.sin(t) * 0.6;
                 if (r.limbs['lLeg']) r.limbs['lLeg'].rotation.x = -Math.sin(t) * 0.6;
-                if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = -Math.sin(t) * 0.6;
+                if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = Math.sin(t) * 0.6;
             }
             
-            if (r.group.position.distanceTo(tar) < 14) {
+            if (r.group.position.distanceTo(tar) < 16) {
                 r.currentWaypointIndex++;
                 r.navState = 'SEEK'; r.followSteps = 0;
                 if (r.currentWaypointIndex >= r.waypoints.length) {
-                    scene.remove(r.group); runners.splice(i, 1);
+                    r.waypoints.push(targetBasePos);
                 }
             }
         } else { r.update(playerGroup.position); }
@@ -701,8 +697,8 @@ function animate() {
         let sn = snails[i]; 
         if (sn.markedForRemoval) { scene.remove(sn.group); snails.splice(i, 1); continue; }
         
-        let reachedEnemyBase = (sn.isYellowTeam && sn.group.position.distanceTo(new THREE.Vector3(-460, 0, -460)) < 15) || 
-                               (!sn.isYellowTeam && sn.group.position.distanceTo(new THREE.Vector3(460, 0, 460)) < 15);
+        let targetBasePos = sn.isYellowTeam ? new THREE.Vector3(-460, 0, -460) : new THREE.Vector3(460, 0, 460);
+        let reachedEnemyBase = sn.group.position.distanceTo(targetBasePos) < 18;
         if (reachedEnemyBase) {
             let targetBaseTeam = sn.isYellowTeam ? 'red' : 'blue';
             if (targetBaseTeam === 'red') redBaseHP = Math.max(0, redBaseHP - 15);
@@ -731,9 +727,9 @@ function animate() {
             
             if (sn.group.position.distanceTo(tar) < 16) {
                 sn.currentWaypointIndex++;
-                sn.navState = 'SEEK'; r.followSteps = 0;
+                sn.navState = 'SEEK'; sn.followSteps = 0;
                 if (sn.currentWaypointIndex >= sn.waypoints.length) {
-                    scene.remove(sn.group); snails.splice(i, 1);
+                    sn.waypoints.push(targetBasePos);
                 }
             }
         }
