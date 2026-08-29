@@ -7,7 +7,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; background: #e0e8f0; overflow: hidden; font-family: monospace; width: 100%; height: 100%; }
+        body, html { margin: 0; padding: 0; background: #e0e8f0; overflow: hidden; font-family: monospace; width: 100%; height: 100%; user-select: none; -webkit-user-select: none; }
         #ui-layer { position: fixed; top: 20px; left: 20px; color: #111; pointer-events: none; z-index: 10; font-size: 11px; }
         #cursor-ui { position: absolute; width: 40px; height: 40px; transform: translate(-50%, -50%); pointer-events: none; z-index: 9999; }
         .cursor-v, .cursor-h { position: absolute; background: #0088ff; box-shadow: 0 0 8px rgba(0, 136, 255, 0.6); }
@@ -29,14 +29,57 @@
 
         .stun-timer-bar { position: absolute; bottom: 0; left: 0; height: 3px; background: #ffff00; width: 100%; transition: width 0.05s linear; }
 
-        #lobby-screen, #countdown-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-family: monospace; text-transform: uppercase; }
-        #countdown-screen { display: none; font-size: 72px; font-weight: bold; color: #00ff88; text-shadow: 0 0 20px rgba(0,255,136,0.8); }
-        .lobby-box { background: #111; border: 3px solid #0088ff; padding: 30px; border-radius: 6px; text-align: center; box-shadow: 0 0 30px rgba(0,136,255,0.5); min-width: 350px; }
-        .lobby-box h1 { font-size: 22px; margin-bottom: 15px; color: #0088ff; }
-        .lobby-box p { font-size: 12px; color: #aaa; margin-bottom: 20px; line-height: 1.5; }
-        .ready-btn { background: #ffaa00; color: #000; border: none; padding: 12px 24px; font-weight: bold; cursor: pointer; font-family: monospace; border-radius: 4px; font-size: 14px; text-transform: uppercase; }
-        .ready-btn:hover { background: #ffcc00; }
-        .ready-btn:disabled { background: #444; color: #888; cursor: not-allowed; }
+        /* --- 6-ROOM LOBBY OVERLAY --- */
+        #lobby-screen { 
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; 
+            background: radial-gradient(circle at center, #131d2e 0%, #080c14 100%); 
+            z-index: 2000; display: flex; flex-direction: column; align-items: center; 
+            justify-content: flex-start; padding: 20px; box-sizing: border-box; overflow-y: auto; color: #fff; 
+        }
+        .lobby-header { text-align: center; margin-top: 10px; margin-bottom: 20px; }
+        .lobby-header h1 { font-size: clamp(22px, 5vw, 36px); margin: 0; letter-spacing: 2px; color: #0088ff; text-shadow: 0 0 20px rgba(0,136,255,0.5); }
+        .lobby-header p { margin: 5px 0 0; color: #8892b0; font-size: clamp(11px, 2.5vw, 13px); text-transform: uppercase; letter-spacing: 1px; }
+
+        #lobbies-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; width: 100%; max-width: 950px; }
+        
+        .arena-card {
+            background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;
+            transition: transform 0.15s, border-color 0.2s, background 0.2s; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .arena-card:hover { border-color: rgba(0, 136, 255, 0.4); background: rgba(255, 255, 255, 0.07); }
+        .arena-card.active-room { border: 2px solid #0088ff; box-shadow: 0 0 25px rgba(0,136,255,0.25); background: rgba(0, 136, 255, 0.05); }
+
+        .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .arena-name { font-weight: bold; font-size: 16px; color: #fff; }
+        .arena-badge { font-size: 10px; padding: 4px 8px; border-radius: 4px; font-weight: bold; text-transform: uppercase; }
+        .badge-open { background: rgba(0, 136, 255, 0.2); color: #0088ff; }
+        .badge-ready { background: rgba(255, 170, 0, 0.2); color: #ffaa00; }
+        .badge-ingame { background: rgba(204, 34, 34, 0.25); color: #ff4444; }
+
+        .player-slots { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+        .player-slot { background: rgba(0, 0, 0, 0.4); padding: 8px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+        .slot-name { font-weight: bold; }
+        .slot-team-blue { color: #0088ff; }
+        .slot-team-red { color: #ff3333; }
+        .slot-empty { color: #555e75; font-style: italic; }
+
+        .ready-pill { font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: bold; }
+        .pill-ready { background: #00ff88; color: #000; }
+        .pill-waiting { background: #334155; color: #aaa; }
+
+        .card-actions { display: flex; gap: 8px; }
+        .btn-join, .btn-ready, .btn-leave { flex: 1; padding: 9px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px; font-family: monospace; transition: all 0.15s ease; text-transform: uppercase; }
+        .btn-join { background: #0088ff; color: #fff; }
+        .btn-join:hover { background: #0066cc; transform: translateY(-1px); }
+        .btn-join:disabled { background: #1e293b; color: #555e75; cursor: not-allowed; transform: none; }
+        .btn-ready { background: #1e293b; color: #fff; border: 1px solid #334155; }
+        .btn-ready.is-ready { background: #00ff88; color: #000; border-color: #00ff88; }
+        .btn-leave { background: #cc2222; color: #fff; flex: 0.5; }
+
+        #countdown-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.88); z-index: 2100; display: none; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-family: monospace; text-transform: uppercase; }
+        #countdown-number { font-size: clamp(60px, 15vw, 110px); font-weight: 900; color: #00ff88; text-shadow: 0 0 20px rgba(0,255,136,0.8); margin: 20px 0; animation: popIn 0.5s ease-out; }
+        @keyframes popIn { 0% { transform: scale(0.3); opacity: 0; } 80% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); } }
 
         #game-over-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.82); z-index: 1000; display: none; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-family: monospace; text-transform: uppercase; }
         .game-over-box { background: #111; border: 3px solid #0088ff; padding: 30px; border-radius: 6px; text-align: center; box-shadow: 0 0 30px rgba(0,136,255,0.5); min-width: 320px; }
@@ -49,20 +92,20 @@
 <body>
 <div id="cursor-ui"><div class="cursor-v"></div><div class="cursor-h"></div></div>
 
+<!-- 6-ROOM LOBBY OVERLAY -->
 <div id="lobby-screen">
-    <div class="lobby-box">
-        <h1>VANGUARD COMBAT LOBBY</h1>
-        <p id="lobby-status">
-            TEAM: <span id="team-name-display" style="color:#0088ff; font-weight:bold;">CONNECTING...</span><br><br>
-            BLUE COMMANDER: <span id="blue-ready" style="color:red;">NOT READY</span><br>
-            RED COMMANDER: <span id="red-ready" style="color:red;">NOT READY</span>
-        </p>
-        <button id="ready-button" class="ready-btn" onclick="setReady()">CONFIRM READY</button>
+    <div class="lobby-header">
+        <h1>VANGUARD COMBAT ARENA</h1>
+        <p>Select a sector, join a lobby, and click READY to deploy!</p>
     </div>
+    <div id="lobbies-grid"></div>
 </div>
 
+<!-- COUNTDOWN SCREEN -->
 <div id="countdown-screen">
+    <div style="font-size: 18px; color: #ffaa00; font-weight: bold;" id="countdown-team-text">VESSEL ASSIGNED</div>
     <div id="countdown-number">3</div>
+    <div style="color: #8892b0; font-size: 13px; letter-spacing: 1px;">Deploying vanguard vessel into the grid...</div>
 </div>
 
 <div id="game-over-screen">
@@ -107,6 +150,8 @@
 <script>
 const socket = io();
 let myTeam = 'blue';
+let currentRoomId = null;
+let myReadyState = false;
 
 let scene, camera, renderer, playerGroup, snakeHead, dirLight, floor, recruitmentPad, enemyPad;
 let userBlocks = [], aiBlocks = [], wallMeshes = [], bullets = [], turrets = [], keys = {};
@@ -124,11 +169,91 @@ let playerSpawnPos = new THREE.Vector3(430, 0, 430);
 let aiGroup, aiSirenL, aiSirenR, aiPointLight, aiTurrets = [];
 let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
 
-socket.on('roleAssign', (data) => {
+// --- DYNAMIC LOBBY MANAGEMENT ---
+socket.on('lobbies_update', (lobbies) => {
+    const grid = document.getElementById('lobbies-grid');
+    grid.innerHTML = '';
+
+    lobbies.forEach(lobby => {
+        const isMyCurrentRoom = currentRoomId === lobby.id;
+        const isFull = lobby.playerCount >= 2;
+        const isInGame = lobby.status === 'in_game';
+
+        const card = document.createElement('div');
+        card.className = `arena-card ${isMyCurrentRoom ? 'active-room' : ''}`;
+
+        let statusBadge = `<span class="arena-badge badge-open">Waiting (${lobby.playerCount}/2)</span>`;
+        if (isInGame) statusBadge = `<span class="arena-badge badge-ingame">In Combat</span>`;
+        else if (isFull) statusBadge = `<span class="arena-badge badge-ready">Full</span>`;
+
+        const p1 = lobby.players[0];
+        const p2 = lobby.players[1];
+
+        const slot1Html = p1 
+            ? `<div class="player-slot">
+                 <span class="slot-name ${p1.team === 'blue' ? 'slot-team-blue' : 'slot-team-red'}">
+                   ${p1.id === socket.id ? '★ YOU (' + p1.team.toUpperCase() + ')' : 'COMMANDER 1 (' + p1.team.toUpperCase() + ')'}
+                 </span>
+                 <span class="ready-pill ${p1.ready ? 'pill-ready' : 'pill-waiting'}">${p1.ready ? 'READY' : 'WAITING'}</span>
+               </div>`
+            : `<div class="player-slot"><span class="slot-empty">Empty Vessel Slot</span></div>`;
+
+        const slot2Html = p2 
+            ? `<div class="player-slot">
+                 <span class="slot-name ${p2.team === 'blue' ? 'slot-team-blue' : 'slot-team-red'}">
+                   ${p2.id === socket.id ? '★ YOU (' + p2.team.toUpperCase() + ')' : 'COMMANDER 2 (' + p2.team.toUpperCase() + ')'}
+                 </span>
+                 <span class="ready-pill ${p2.ready ? 'pill-ready' : 'pill-waiting'}">${p2.ready ? 'READY' : 'WAITING'}</span>
+               </div>`
+            : `<div class="player-slot"><span class="slot-empty">Empty Vessel Slot</span></div>`;
+
+        let actionButtonsHtml = '';
+        if (isMyCurrentRoom) {
+            actionButtonsHtml = `
+                <button class="btn-ready ${myReadyState ? 'is-ready' : ''}" onclick="toggleReady('${lobby.id}')">
+                    ${myReadyState ? '✓ READY' : 'CONFIRM READY'}
+                </button>
+                <button class="btn-leave" onclick="leaveRoom()">LEAVE</button>
+            `;
+        } else {
+            const disableJoin = isInGame || isFull || currentRoomId !== null;
+            actionButtonsHtml = `
+                <button class="btn-join" ${disableJoin ? 'disabled' : ''} onclick="joinRoom('${lobby.id}')">
+                    ${isInGame ? 'IN COMBAT' : (isFull ? 'ROOM FULL' : 'JOIN ARENA')}
+                </button>
+            `;
+        }
+
+        card.innerHTML = `
+            <div>
+                <div class="card-top">
+                    <span class="arena-name">${lobby.name}</span>
+                    ${statusBadge}
+                </div>
+                <div class="player-slots">
+                    ${slot1Html}
+                    ${slot2Html}
+                </div>
+            </div>
+            <div class="card-actions">
+                ${actionButtonsHtml}
+            </div>
+        `;
+
+        grid.appendChild(card);
+    });
+});
+
+function joinRoom(roomId) { socket.emit('join_room', roomId); }
+function leaveRoom() { socket.emit('leave_room'); }
+function toggleReady(roomId) { socket.emit('toggle_ready', roomId); myReadyState = !myReadyState; }
+
+socket.on('room_joined', (data) => {
+    currentRoomId = data.roomId;
     myTeam = data.team;
+    myReadyState = false;
+
     document.getElementById('player-role-label').innerText = `${myTeam.toUpperCase()} COMMANDER: ONLINE`;
-    document.getElementById('team-name-display').innerText = myTeam.toUpperCase();
-    document.getElementById('team-name-display').style.color = (myTeam === 'red') ? '#ff3333' : '#0088ff';
 
     if (myTeam === 'red') {
         playerSpawnPos.set(-430, 0, -430);
@@ -142,27 +267,22 @@ socket.on('roleAssign', (data) => {
     }
 });
 
-function setReady() {
-    document.getElementById('ready-button').disabled = true;
-    document.getElementById('ready-button').innerText = 'READY LOCKED';
-    socket.emit('playerReady');
-}
-
-socket.on('updateReadyStatus', (status) => {
-    let blueEl = document.getElementById('blue-ready');
-    let redEl = document.getElementById('red-ready');
-    
-    blueEl.innerText = status.blue ? 'READY' : 'NOT READY';
-    blueEl.style.color = status.blue ? '#00ff88' : 'red';
-    
-    redEl.innerText = status.red ? 'READY' : 'NOT READY';
-    redEl.style.color = status.red ? '#00ff88' : 'red';
+socket.on('left_room_success', () => {
+    currentRoomId = null;
+    myReadyState = false;
 });
 
-socket.on('startCountdown', () => {
+socket.on('lobby_error', (msg) => { alert(msg); });
+
+socket.on('start_match_countdown', (data) => {
+    myTeam = data.team;
     document.getElementById('lobby-screen').style.display = 'none';
-    let countdownScreen = document.getElementById('countdown-screen');
-    let numberEl = document.getElementById('countdown-number');
+    const countdownScreen = document.getElementById('countdown-screen');
+    const numberEl = document.getElementById('countdown-number');
+    const teamTextEl = document.getElementById('countdown-team-text');
+    
+    teamTextEl.innerText = `COMMANDING ${myTeam.toUpperCase()} VESSEL`;
+    teamTextEl.style.color = (myTeam === 'red') ? '#ff3333' : '#0088ff';
     countdownScreen.style.display = 'flex';
 
     let count = 3;
@@ -173,7 +293,7 @@ socket.on('startCountdown', () => {
         if (count > 0) {
             numberEl.innerText = count;
         } else if (count === 0) {
-            numberEl.innerText = 'GO!';
+            numberEl.innerText = 'ENGAGE!';
         } else {
             clearInterval(timer);
             countdownScreen.style.display = 'none';
@@ -884,7 +1004,6 @@ function animate() {
         const b = bullets[i]; b.position.add(b.userData.velocity); b.userData.life--;
         if (b.userData.life <= 0) { scene.remove(b); bullets.splice(i, 1); continue; }
 
-        // Bullet protection check: destroy bullet ONLY if it enters the ENEMY'S protected base zone
         let enemyBaseX = (myTeam === 'blue') ? -400 : 400;
         let enemyBaseZ = (myTeam === 'blue') ? -400 : 400;
         let inEnemyBase = (myTeam === 'blue') ? (b.position.x <= enemyBaseX && b.position.z <= enemyBaseZ) : (b.position.x >= enemyBaseX && b.position.z >= enemyBaseZ);
