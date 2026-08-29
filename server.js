@@ -10,94 +10,159 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
 
-// Keep track of rooms and waiting players
-let waitingPlayer = null;
-let rooms = {}; // roomId -> { blue: socketId, red: socketId, ready: {blue: false, red: false}, started: false }
+// Initialize 6 fixed 2-player lobbies
+const rooms = {};
+for (let i = 1; i <= 6; i++) {
+    const roomId = `room_${i}`;
+    rooms[roomId] = {
+        id: roomId,
+        name: `Arena 0${i}`,
+        players: {}, // socketId: { team: 'blue'|'red', ready: false }
+        status: 'open' // 'open' | 'in_game'
+    };
+}
+
+function getLobbiesSummary() {
+    const list = [];
+    for (const rId in rooms) {
+        const r = rooms[rId];
+        const pKeys = Object.keys(r.players);
+        list.push({
+            id: r.id,
+            name: r.name,
+            playerCount: pKeys.length,
+            status: r.status,
+            players: pKeys.map(id => ({
+                id,
+                ready: r.players[id].ready,
+                team: r.players[id].team
+            }))
+        });
+    }
+    return list;
+}
+
+function broadcastLobbyState() {
+    io.emit('lobbies_update', getLobbiesSummary());
+}
+
+function removePlayerFromCurrentRoom(socket) {
+    for (const roomId in rooms) {
+        const room = rooms[roomId];
+        if (room.players[socket.id]) {
+            delete room.players[socket.id];
+            socket.leave(roomId);
+
+            if (room.status === 'in_game') {
+                io.to(roomId).emit('playerLeft', { id: socket.id });
+                room.status = 'open';
+                room.players = {};
+            }
+            broadcastLobbyState();
+            break;
+        }
+    }
+}
 
 io.on('connection', (socket) => {
     console.log(`Player connected: ${socket.id}`);
 
-    // Matchmaking logic: Pair players into rooms of 2
-    let assignedRoomId;
-    let assignedTeam;
+    // Send initial list of all rooms
+    socket.emit('lobbies_update', getLobbiesSummary());
 
-    if (!waitingPlayer) {
-        // First player in queue waits as Blue
-        waitingPlayer = socket;
-        assignedRoomId = `room_${socket.id}`;
-        assignedTeam = 'blue';
-        
-        rooms[assignedRoomId] = {
-            blue: socket.id,
-            red: null,
-            ready: { blue: false, red: false },
-            started: false
+    socket.on('join_room', (roomId) => {
+        const room = rooms[roomId];
+        if (!room) return;
+
+        if (room.status === 'in_game') {
+            socket.emit('lobby_error', 'This match is currently in progress!');
+            return;
+        }
+
+        const currentPlayers = Object.keys(room.players);
+        if (currentPlayers.length >= 2) {
+            socket.emit('lobby_error', 'This arena is full!');
+            return;
+        }
+
+        removePlayerFromCurrentRoom(socket);
+
+        let assignedTeam = 'blue';
+        if (currentPlayers.length === 1) {
+            const existingP = room.players[currentPlayers[0]];
+            assignedTeam = existingP.team === 'blue' ? 'red' : 'blue';
+        }
+
+        room.players[socket.id] = {
+            team: assignedTeam,
+            ready: false
         };
-        socket.roomID = assignedRoomId;
-    } else {
-        // Second player joins the waiting player as Red, starting a new match room!
-        assignedRoomId = waitingPlayer.roomID;
-        assignedTeam = 'red';
-        
-        rooms[assignedRoomId].red = socket.id;
-        socket.roomID = assignedRoomId;
 
-        // Clear the queue so the next player starts the next room
-        waitingPlayer = null;
-    }
+        socket.roomID = roomId;
+        socket.join(roomId);
 
-    socket.join(assignedRoomId);
-    socket.emit('roleAssign', { team: assignedTeam });
-    
-    // Send initial room ready status
-    io.to(assignedRoomId).emit('updateReadyStatus', rooms[assignedRoomId].ready);
+        socket.emit('room_joined', {
+            roomId: room.id,
+            name: room.name,
+            team: assignedTeam
+        });
 
-    socket.on('playerReady', () => {
-        let room = rooms[socket.roomID];
-        if (room) {
-            if (socket.id === room.blue) room.ready.blue = true;
-            if (socket.id === room.red) room.ready.red = true;
+        broadcastLobbyState();
+    });
 
-            io.to(socket.roomID).emit('updateReadyStatus', room.ready);
+    socket.on('leave_room', () => {
+        removePlayerFromCurrentRoom(socket);
+        socket.roomID = null;
+        socket.emit('left_room_success');
+        broadcastLobbyState();
+    });
 
-            if (room.ready.blue && room.ready.red && !room.started) {
-                room.started = true;
-                io.to(socket.roomID).emit('startCountdown');
-            }
+    socket.on('toggle_ready', (roomId) => {
+        const room = rooms[roomId];
+        if (!room || !room.players[socket.id]) return;
+
+        room.players[socket.id].ready = !room.players[socket.id].ready;
+        broadcastLobbyState();
+
+        const playerIds = Object.keys(room.players);
+        const allReady = playerIds.length === 2 && playerIds.every(id => room.players[id].ready);
+
+        if (allReady) {
+            room.status = 'in_game';
+            broadcastLobbyState();
+
+            const p1 = playerIds[0];
+            const p2 = playerIds[1];
+
+            io.to(p1).emit('start_match_countdown', { team: room.players[p1].team });
+            io.to(p2).emit('start_match_countdown', { team: room.players[p2].team });
         }
     });
 
+    // In-game Relay Events
     socket.on('playerMove', (data) => {
-        socket.to(socket.roomID).emit('enemyMove', data);
+        if (socket.roomID) socket.to(socket.roomID).emit('enemyMove', data);
     });
 
     socket.on('playerFire', (data) => {
-        socket.to(socket.roomID).emit('enemyFire', data);
+        if (socket.roomID) socket.to(socket.roomID).emit('enemyFire', data);
     });
 
     socket.on('placeBlock', (data) => {
-        socket.to(socket.roomID).emit('blockPlaced', data);
+        if (socket.roomID) socket.to(socket.roomID).emit('blockPlaced', data);
     });
 
     socket.on('spawnUnit', (data) => {
-        io.to(socket.roomID).emit('unitSpawned', data);
+        if (socket.roomID) io.to(socket.roomID).emit('unitSpawned', data);
     });
 
     socket.on('shipHit', (data) => {
-        io.to(socket.roomID).emit('applyStun', { team: data.targetTeam });
+        if (socket.roomID) io.to(socket.roomID).emit('applyStun', { team: data.targetTeam });
     });
 
     socket.on('disconnect', () => {
         console.log(`Player disconnected: ${socket.id}`);
-        if (waitingPlayer === socket) {
-            waitingPlayer = null;
-        }
-
-        let roomId = socket.roomID;
-        if (roomId && rooms[roomId]) {
-            io.to(roomId).emit('playerLeft', { id: socket.id });
-            delete rooms[roomId];
-        }
+        removePlayerFromCurrentRoom(socket);
     });
 });
 
