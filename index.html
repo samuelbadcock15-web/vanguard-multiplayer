@@ -22,7 +22,6 @@
         .control-details { margin-top: 5px; color: #444; }
         .live-metrics { font-size: 10px; color: #c86400; font-weight: bold; }
         
-        /* --- SLEEK, MINIMAL FLOATING HEALTH BARS --- */
         #overhead-ui, #opponent-overhead-ui { 
             position: fixed; 
             pointer-events: none; 
@@ -71,7 +70,7 @@
             margin-top: 1px;
         }
 
-        /* --- 6-ROOM LOBBY OVERLAY --- */
+        /* --- LOBBY OVERLAY --- */
         #lobby-screen { 
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; 
             background: radial-gradient(circle at center, #131d2e 0%, #080c14 100%); 
@@ -219,6 +218,7 @@
 <div id="overhead-ui">
     <span id="player-badge-text" class="hud-vessel-title hud-blue">VESSEL</span>
     <div class="hp-bar-container"><div id="player-hp-bar" class="hp-fill"></div></div>
+    <div id="player-range-warning" class="range-warning-text">DEFLECTED</div>
 </div>
 
 <div id="opponent-overhead-ui">
@@ -275,7 +275,8 @@ let playerHP = MAX_HP;
 let enemyHP = MAX_HP;
 let isPlayerDead = false;
 let isEnemyDead = false;
-let rangeWarningTimeout = null;
+let playerWarningTimeout = null;
+let enemyWarningTimeout = null;
 
 // Base spawn coordinates facing inward toward center (0,0,0)
 const BLUE_BASE = new THREE.Vector3(430, 0, 430);
@@ -489,7 +490,7 @@ socket.on('enemyFire', (data) => {
     b.position.set(data.x, data.y, data.z);
     b.userData.velocity = new THREE.Vector3(data.vx, data.vy, data.vz);
     b.userData.life = 120;
-    b.userData.isPlayerBullet = false;
+    b.userData.isPlayerBullet = false; // Came from remote enemy
     bullets.push(b);
     scene.add(b);
 });
@@ -526,49 +527,64 @@ socket.on('healthUpdate', (data) => {
     }
 });
 
+// --- CROSS-DEVICE RICOCHET SYNCHRONIZATION ---
+socket.on('ricochetEvent', (data) => {
+    const hitVec = new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z);
+    const normVec = new THREE.Vector3(data.normal.x, data.normal.y, data.normal.z);
+    spawnRicochetSparks(hitVec, normVec);
+
+    if (data.targetTeam === myTeam) {
+        triggerPlayerRangeWarning();
+    } else {
+        triggerEnemyRangeWarning();
+    }
+});
+
+// ROBUST SHATTER DEBRIS SYSTEM
 function spawnShatterDebris(pos, colorHex) {
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 50; i++) {
         const p = new THREE.Mesh(
             new THREE.BoxGeometry(0.8, 0.8, 0.8),
             new THREE.MeshStandardMaterial({ color: colorHex, roughness: 1.0, metalness: 0.0 })
         );
         p.position.copy(pos).y += 1.5;
         p.userData.velocity = new THREE.Vector3(
-            (Math.random() - 0.5) * 6,
-            Math.random() * 5 + 1.5,
-            (Math.random() - 0.5) * 6
+            (Math.random() - 0.5) * 8,
+            Math.random() * 6 + 2,
+            (Math.random() - 0.5) * 8
         );
-        p.userData.life = 60;
+        p.userData.life = 120; // Lasts full 2 seconds
         scene.add(p);
         debrisParticles.push(p);
     }
 }
 
 function spawnRicochetSparks(pos, normalDir) {
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
         const sp = new THREE.Mesh(
-            new THREE.BoxGeometry(0.25, 0.25, 0.25),
+            new THREE.BoxGeometry(0.3, 0.3, 0.3),
             new THREE.MeshBasicMaterial({ color: 0xffcc00 })
         );
         sp.position.copy(pos);
         sp.userData.velocity = normalDir.clone()
-            .add(new THREE.Vector3((Math.random()-0.5)*2, Math.random()*2, (Math.random()-0.5)*2))
-            .normalize().multiplyScalar(3.5);
-        sp.userData.life = 15;
+            .add(new THREE.Vector3((Math.random()-0.5)*3, Math.random()*3, (Math.random()-0.5)*3))
+            .normalize().multiplyScalar(4.5);
+        sp.userData.life = 20;
         scene.add(sp);
         debrisParticles.push(sp);
     }
 }
 
-// RELIABLE DESTRUCTION & BASE RESPAWN (WITH BULLET CLEANUP)
+// RELIABLE DESTRUCTION & BASE RESPAWN
 socket.on('shipRespawn', (data) => {
     const isTargetMe = (data.targetTeam === myTeam);
     const deathVec = new THREE.Vector3(data.deathPos.x, data.deathPos.y, data.deathPos.z);
-    const teamColor = data.targetTeam === 'blue' ? 0x0088ff : 0xee2222;
+    const teamColor = (data.targetTeam === 'blue') ? 0x0088ff : 0xee2222;
 
+    // Both clients spawn the exact same death debris in world space
     spawnShatterDebris(deathVec, teamColor);
 
-    // Flush bullets so dead player isn't hit by late rounds
+    // Flush all active bullets so late-flying shots don't hit the clean respawn
     for (let i = bullets.length - 1; i >= 0; i--) {
         scene.remove(bullets[i]);
     }
@@ -599,7 +615,7 @@ socket.on('shipRespawn', (data) => {
                 z: playerGroup.position.z, 
                 yaw: yaw 
             });
-        }, 700);
+        }, 1200);
 
     } else {
         isEnemyDead = true;
@@ -619,7 +635,7 @@ socket.on('shipRespawn', (data) => {
                 aiGroup.visible = true;
             }
             isEnemyDead = false;
-        }, 700);
+        }, 1200);
     }
 });
 
@@ -1080,7 +1096,6 @@ function updateOverheadUI() {
     ew.project(camera); 
     const eUi = document.getElementById('opponent-overhead-ui');
 
-    // ONLY SHOW IF WITHIN COMBAT/ENGAGEMENT RANGE (<= 160 units) AND ON-SCREEN
     const inVisibilityRange = (distToEnemy <= 160) || (enemyHP < MAX_HP && distToEnemy <= 240);
 
     if (wp.z > 1 || Math.abs(ew.x) > 1.2 || Math.abs(ew.y) > 1.2 || isEnemyDead || !inVisibilityRange) {
@@ -1090,7 +1105,6 @@ function updateOverheadUI() {
         eUi.style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
         eUi.style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
         
-        // Scale down cleanly with distance instead of a static chunky block
         const scale = THREE.MathUtils.clamp(1.0 - (distToEnemy / 240) * 0.4, 0.65, 1.0);
         eUi.style.transform = `translate(-50%, -100%) scale(${scale})`;
         eUi.style.opacity = `${THREE.MathUtils.clamp(1.0 - (distToEnemy - 120) / 40, 0.35, 1.0)}`;
@@ -1099,11 +1113,20 @@ function updateOverheadUI() {
     }
 }
 
+function triggerPlayerRangeWarning() {
+    const rw = document.getElementById('player-range-warning');
+    if (!rw) return;
+    rw.style.display = 'block';
+    if (playerWarningTimeout) clearTimeout(playerWarningTimeout);
+    playerWarningTimeout = setTimeout(() => { rw.style.display = 'none'; }, 800);
+}
+
 function triggerEnemyRangeWarning() {
     const rw = document.getElementById('enemy-range-warning');
+    if (!rw) return;
     rw.style.display = 'block';
-    if (rangeWarningTimeout) clearTimeout(rangeWarningTimeout);
-    rangeWarningTimeout = setTimeout(() => { rw.style.display = 'none'; }, 800);
+    if (enemyWarningTimeout) clearTimeout(enemyWarningTimeout);
+    enemyWarningTimeout = setTimeout(() => { rw.style.display = 'none'; }, 800);
 }
 
 function updateCounters() {
@@ -1121,13 +1144,15 @@ function animate() {
     updateOverheadUI();
     updateCounters();
 
-    // Particle tick
+    // SOLID PARTICLE SYSTEM (Lingers cleanly, no premature disappearances)
     for (let i = debrisParticles.length - 1; i >= 0; i--) {
         const p = debrisParticles[i];
         p.position.add(p.userData.velocity);
-        p.userData.velocity.y -= 0.12;
+        p.userData.velocity.y -= 0.14; // Gravity
         p.userData.life--;
-        p.scale.multiplyScalar(0.95);
+        if (p.userData.life <= 30) {
+            p.scale.multiplyScalar(0.94); // Only shrink in final frames
+        }
         if (p.userData.life <= 0) {
             scene.remove(p);
             debrisParticles.splice(i, 1);
@@ -1293,18 +1318,23 @@ function animate() {
         }
 
         let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
-        
-        // --- CRAFT HIT & CROSS-SCREEN HEALTH BROADCAST ---
+
+        // =========================================================================
+        // 1. SYMMETRIC HITBOX: LOCAL BULLETS CHECK ENEMY CRAFT (SHOOTER SIDE)
+        // =========================================================================
         if (b.userData.isPlayerBullet && aiGroup && !isEnemyDead) {
-            let craftBox = new THREE.Box3().setFromCenterAndSize(aiGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
-            if (craftBox.containsPoint(b.position)) {
+            let enemyBox = new THREE.Box3().setFromCenterAndSize(aiGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
+            if (enemyBox.containsPoint(b.position)) {
                 let distToTarget = playerGroup.position.distanceTo(aiGroup.position);
 
                 if (distToTarget > EFFECTIVE_COMBAT_RANGE) {
-                    triggerEnemyRangeWarning();
                     let deflectAngle = new THREE.Vector3().subVectors(b.position, aiGroup.position).normalize();
-                    spawnRicochetSparks(b.position, deflectAngle);
-                    
+                    socket.emit('bulletDeflected', {
+                        targetTeam: opponentTeam,
+                        pos: { x: b.position.x, y: b.position.y, z: b.position.z },
+                        normal: { x: deflectAngle.x, y: deflectAngle.y, z: deflectAngle.z }
+                    });
+
                     b.userData.velocity.set(
                         (Math.random() - 0.5) * 4,
                         Math.random() * 5 + 3,
@@ -1336,6 +1366,36 @@ function animate() {
             }
         }
 
+        // =========================================================================
+        // 2. SYMMETRIC HITBOX: REMOTE BULLETS CHECK LOCAL PLAYER CRAFT (VICTIM SIDE)
+        // =========================================================================
+        if (!b.userData.isPlayerBullet && playerGroup && !isPlayerDead) {
+            let myBox = new THREE.Box3().setFromCenterAndSize(playerGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
+            if (myBox.containsPoint(b.position)) {
+                let distToEnemyShooter = playerGroup.position.distanceTo(aiGroup ? aiGroup.position : playerGroup.position);
+                
+                if (distToEnemyShooter > EFFECTIVE_COMBAT_RANGE) {
+                    // Visually bounce off victim locally
+                    let deflectAngle = new THREE.Vector3().subVectors(b.position, playerGroup.position).normalize();
+                    spawnRicochetSparks(b.position, deflectAngle);
+                    triggerPlayerRangeWarning();
+                    b.userData.velocity.set(
+                        (Math.random() - 0.5) * 4,
+                        Math.random() * 5 + 3,
+                        (Math.random() - 0.5) * 4
+                    );
+                    b.userData.life = 15;
+                    continue;
+                } else {
+                    // Direct hit absorbed by victim
+                    scene.remove(b);
+                    bullets.splice(i, 1);
+                    continue;
+                }
+            }
+        }
+
+        // Pad / Base Man / Wall raycasting
         let pool = [recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
         stalkers.forEach(s => { if(!s.isShattered) pool.push(s.group); });
         runners.forEach(s => { if(!s.isShattered) pool.push(s.group); });
