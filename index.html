@@ -351,7 +351,7 @@ socket.on('lobbies_update', (lobbies) => {
 
     lobbies.forEach(lobby => {
         const isMyCurrentRoom = currentRoomId === lobby.id;
-      0const isFull = lobby.playerCount >= 2;
+        const isFull = lobby.playerCount >= 2;
         const isInGame = lobby.status === 'in_game';
 
         const card = document.createElement('div');
@@ -847,7 +847,6 @@ function executeBugNavigation(entity, currentPos, targetPos, sizeVec, speed) {
     return directDir;
 }
 
-// CORNER ALIGNMENT FIX (Checked posCoord >= 400 for Blue base instead of negative)
 function createAlignedWallTexture(theme, isZWall) {
     const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 100;
     const ctx = canvas.getContext('2d');
@@ -858,7 +857,7 @@ function createAlignedWallTexture(theme, isZWall) {
     ctx.fillStyle = isBlue ? '#08142b' : '#26060a'; ctx.fillRect(0, 0, 1000, 100 - maxWallGridHeight);
     for (let u = 2; u < 1000; u += blockSize) {
         let posCoord = u - 500;
-        let isBaseWall = isBlue ? (isZWall ? (posCoord >= 400) : (posCoord >= 400)) : (isZWall ? (posCoord <= -400) : (posCoord <= -400));
+        let isBaseWall = isBlue ? (isZWall ? (posCoord >= 400) : (posCoord <= -400)) : (isZWall ? (posCoord <= -400) : (posCoord >= 400));
         for (let y = 0; y < maxWallGridHeight; y += blockSize) {
             let v = 100 - y - blockSize;
             ctx.fillStyle = isBaseWall ? baseTileBg : tileBg; ctx.fillRect(u, v, blockSize, blockSize);
@@ -1210,7 +1209,7 @@ function animate() {
                 }
             }
         } else { r.update(playerGroup.position); }
-        }
+    }
 
     for (let i = snails.length - 1; i >= 0; i--) {
         let sn = snails[i]; 
