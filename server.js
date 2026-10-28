@@ -155,6 +155,16 @@ io.on('connection', (socket) => {
         if (socket.roomID) io.to(socket.roomID).emit('unitSpawned', data);
     });
 
+    // --- HEALTH & RESPAWN SYNCHRONIZATION ---
+    socket.on('shipDamage', (data) => {
+        if (socket.roomID) {
+            io.to(socket.roomID).emit('healthUpdate', {
+                targetTeam: data.targetTeam,
+                newHP: data.newHP
+            });
+        }
+    });
+
     socket.on('playerKilled', (data) => {
         if (socket.roomID) {
             io.to(socket.roomID).emit('shipRespawn', {
