@@ -22,15 +22,54 @@
         .control-details { margin-top: 5px; color: #444; }
         .live-metrics { font-size: 10px; color: #c86400; font-weight: bold; }
         
-        #overhead-ui, #opponent-overhead-ui { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
-        
-        .status-badge { position: relative; background: #0088ff; color: #fff; padding: 4px 8px; font-size: 9px; font-weight: bold; border-radius: 2px; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,0,0,0.5); overflow: hidden; min-width: 130px; text-align: center; }
-        .status-badge-ai { background: #cc2222; color: #fff; padding: 4px 8px; font-size: 9px; font-weight: bold; border-radius: 2px; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,0,0,0.5); min-width: 130px; text-align: center; }
+        /* --- SLEEK, MINIMAL FLOATING HEALTH BARS --- */
+        #overhead-ui, #opponent-overhead-ui { 
+            position: fixed; 
+            pointer-events: none; 
+            z-index: 50; 
+            display: none; 
+            flex-direction: column; 
+            gap: 2px; 
+            align-items: center; 
+            transform: translate(-50%, -100%); 
+            transition: opacity 0.2s ease;
+        }
 
-        .hp-bar-container { width: 100%; height: 5px; background: rgba(0,0,0,0.7); margin-top: 3px; border-radius: 2px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2); }
-        .hp-fill { height: 100%; width: 100%; background: #00ff88; transition: width 0.08s linear; }
+        .hud-vessel-title {
+            font-size: 8px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.85);
+            text-transform: uppercase;
+        }
+        .hud-blue { color: #55b3ff; }
+        .hud-red { color: #ff5555; }
 
-        .range-warning-text { font-size: 9px; color: #ffaa00; font-weight: bold; text-shadow: 0 0 4px #000; display: none; margin-top: 2px; letter-spacing: 1px; }
+        .hp-bar-container { 
+            width: 70px; 
+            height: 4px; 
+            background: rgba(10, 15, 25, 0.75); 
+            border-radius: 2px; 
+            overflow: hidden; 
+            box-shadow: 0 1px 4px rgba(0,0,0,0.6);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .hp-fill { 
+            height: 100%; 
+            width: 100%; 
+            background: #00ff88; 
+            transition: width 0.08s linear; 
+        }
+
+        .range-warning-text { 
+            font-size: 8px; 
+            color: #ffcc00; 
+            font-weight: bold; 
+            text-shadow: 0 1px 3px #000; 
+            display: none; 
+            letter-spacing: 0.5px; 
+            margin-top: 1px;
+        }
 
         /* --- 6-ROOM LOBBY OVERLAY --- */
         #lobby-screen { 
@@ -176,19 +215,16 @@
     </div>
 </div>
 
+<!-- SLEEK OVERHEAD UI -->
 <div id="overhead-ui">
-    <div id="player-status-badge" class="status-badge">
-        <span id="player-badge-text">VESSEL: 300 HP</span>
-        <div class="hp-bar-container"><div id="player-hp-bar" class="hp-fill"></div></div>
-    </div>
+    <span id="player-badge-text" class="hud-vessel-title hud-blue">VESSEL</span>
+    <div class="hp-bar-container"><div id="player-hp-bar" class="hp-fill"></div></div>
 </div>
 
 <div id="opponent-overhead-ui">
-    <div id="opponent-status-badge" class="status-badge-ai">
-        <span id="opponent-badge-text">ENEMY: 300 HP</span>
-        <div class="hp-bar-container"><div id="enemy-hp-bar" class="hp-fill"></div></div>
-        <div id="enemy-range-warning" class="range-warning-text">DEFLECTED: OUT OF RANGE</div>
-    </div>
+    <span id="opponent-badge-text" class="hud-vessel-title hud-red">ENEMY</span>
+    <div class="hp-bar-container"><div id="enemy-hp-bar" class="hp-fill"></div></div>
+    <div id="enemy-range-warning" class="range-warning-text">DEFLECTED</div>
 </div>
 
 <div id="ui-layer">
@@ -392,9 +428,13 @@ socket.on('room_joined', (data) => {
     if (myTeam === 'red') {
         playerSpawnPos.copy(RED_BASE);
         yaw = RED_DEFAULT_YAW;
+        document.getElementById('player-badge-text').className = 'hud-vessel-title hud-red';
+        document.getElementById('opponent-badge-text').className = 'hud-vessel-title hud-blue';
     } else {
         playerSpawnPos.copy(BLUE_BASE);
         yaw = BLUE_DEFAULT_YAW;
+        document.getElementById('player-badge-text').className = 'hud-vessel-title hud-blue';
+        document.getElementById('opponent-badge-text').className = 'hud-vessel-title hud-red';
     }
     if (scene) {
         initGameWorld();
@@ -1020,8 +1060,8 @@ function checkCollision(pos) {
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
-    // Local player UI
-    const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 1.8; wp.project(camera); 
+    // Local player UI: always visible to self
+    const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 2.2; wp.project(camera); 
     const pUi = document.getElementById('overhead-ui');
     if (wp.z > 1 || Math.abs(wp.x) > 1.2 || Math.abs(wp.y) > 1.2 || isPlayerDead) {
         pUi.style.display = 'none';
@@ -1029,20 +1069,32 @@ function updateOverheadUI() {
         pUi.style.display = 'flex';
         pUi.style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
         pUi.style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
-        document.getElementById('player-badge-text').innerText = `VESSEL: ${playerHP} HP`;
         document.getElementById('player-hp-bar').style.width = `${Math.max(0, (playerHP / MAX_HP) * 100)}%`;
     }
 
-    // Opponent UI
-    const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); ew.y += 1.8; ew.project(camera); 
+    // Opponent UI: Distance Culled & Cleanly Scaled
+    const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); 
+    const distToEnemy = playerGroup.position.distanceTo(ew);
+    
+    ew.y += 2.2; 
+    ew.project(camera); 
     const eUi = document.getElementById('opponent-overhead-ui');
-    if (ew.z > 1 || Math.abs(ew.x) > 1.2 || Math.abs(ew.y) > 1.2 || isEnemyDead) {
+
+    // ONLY SHOW IF WITHIN COMBAT/ENGAGEMENT RANGE (<= 160 units) AND ON-SCREEN
+    const inVisibilityRange = (distToEnemy <= 160) || (enemyHP < MAX_HP && distToEnemy <= 240);
+
+    if (wp.z > 1 || Math.abs(ew.x) > 1.2 || Math.abs(ew.y) > 1.2 || isEnemyDead || !inVisibilityRange) {
         eUi.style.display = 'none';
     } else {
         eUi.style.display = 'flex';
         eUi.style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
         eUi.style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
-        document.getElementById('opponent-badge-text').innerText = `ENEMY: ${enemyHP} HP`;
+        
+        // Scale down cleanly with distance instead of a static chunky block
+        const scale = THREE.MathUtils.clamp(1.0 - (distToEnemy / 240) * 0.4, 0.65, 1.0);
+        eUi.style.transform = `translate(-50%, -100%) scale(${scale})`;
+        eUi.style.opacity = `${THREE.MathUtils.clamp(1.0 - (distToEnemy - 120) / 40, 0.35, 1.0)}`;
+        
         document.getElementById('enemy-hp-bar').style.width = `${Math.max(0, (enemyHP / MAX_HP) * 100)}%`;
     }
 }
@@ -1265,7 +1317,6 @@ function animate() {
                     let updatedEnemyHP = Math.max(0, enemyHP - DAMAGE_PER_SHOT);
                     enemyHP = updatedEnemyHP;
 
-                    // BROADCAST HP DROP TO OPPONENT IN REAL TIME
                     socket.emit('shipDamage', {
                         targetTeam: opponentTeam,
                         newHP: updatedEnemyHP
