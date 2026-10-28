@@ -72,7 +72,7 @@ function removePlayerFromCurrentRoom(socket) {
             socket.leave(roomId);
             socket.roomID = null;
 
-            if (room.status === 'in_game') {
+            if (room.status === 'in_game' || room.status === 'post_game') {
                 io.to(roomId).emit('playerLeft', { id: socket.id });
                 resetRoomToOpen(room);
             }
@@ -89,7 +89,7 @@ io.on('connection', (socket) => {
         const room = rooms[roomId];
         if (!room) return;
 
-        if (room.status === 'in_game') {
+        if (room.status === 'in_game' || room.status === 'post_game') {
             socket.emit('lobby_error', 'This match is currently in progress!');
             return;
         }
@@ -209,7 +209,6 @@ io.on('connection', (socket) => {
         const shooterId = Object.keys(room.players).find(id => id !== socket.id);
         const shooter = shooterId ? room.players[shooterId] : null;
 
-        // Calculate distance between shooter and victim
         let dist = 0;
         if (shooter && shooter.pos && victim.pos) {
             const dx = shooter.pos.x - victim.pos.x;
@@ -242,7 +241,6 @@ io.on('connection', (socket) => {
                 deathPos: victim.pos
             });
 
-            // Authoritative respawn reset timer
             setTimeout(() => {
                 if (room.players[socket.id]) {
                     victim.hp = MAX_HP;
@@ -253,14 +251,37 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Match Ended with Victory/Defeat attribution & 6s viewing delay
     socket.on('matchEnded', (data) => {
         if (!socket.roomID) return;
         const room = rooms[socket.roomID];
-        if (room) {
-            io.to(socket.roomID).emit('matchEnded', data);
-            resetRoomToOpen(room);
-            broadcastLobbyState();
-        }
+        if (!room || room.status !== 'in_game') return;
+
+        room.status = 'post_game';
+
+        const winningTeam = data.winnerTeam; 
+        const reason = data.reason || 'Base breached';
+
+        Object.keys(room.players).forEach(pId => {
+            const p = room.players[pId];
+            const didWin = (p.team === winningTeam);
+
+            io.to(pId).emit('matchEnded', {
+                outcome: didWin ? 'VICTORY' : 'DEFEAT',
+                reason: didWin 
+                    ? `VICTORY ACHIEVED!\nYour vanguard breached the enemy stronghold (${reason}).`
+                    : `DEFEAT...\nEnemy forces breached your base perimeter (${reason}).`,
+                winningTeam: winningTeam
+            });
+        });
+
+        // 6 second timer to allow players to view result and snapshot evidence
+        setTimeout(() => {
+            if (rooms[room.id] && rooms[room.id].status === 'post_game') {
+                resetRoomToOpen(room);
+                broadcastLobbyState();
+            }
+        }, 6000);
     });
 
     socket.on('disconnect', () => {
