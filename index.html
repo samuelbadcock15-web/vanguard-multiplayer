@@ -1034,4 +1034,436 @@ function initGameWorld() {
     scene.add(redLane);
 
     sirenGeo = new THREE.BoxGeometry(0.7, 0.25, 0.5);
-    let myColor
+    let myColor = myTeam === 'blue' ? 0x0088ff : 0xcc2222;
+    let pData = createShip(myColor);
+    playerGroup = pData.group; turrets = pData.turrets;
+    playerGroup.position.copy(playerSpawnPos); playerGroup.rotation.y = yaw; scene.add(playerGroup); 
+    playerGroup.add(camera); camera.position.set(0, 7, 15); camera.lookAt(0, 0, -20);
+    
+    let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
+    let eData = createShip(enemyColor); 
+    aiGroup = eData.group; 
+    let enemyPos = myTeam === 'blue' ? RED_BASE.clone() : BLUE_BASE.clone();
+    let enemyYaw = myTeam === 'blue' ? RED_DEFAULT_YAW : BLUE_DEFAULT_YAW;
+    aiGroup.position.copy(enemyPos); 
+    aiGroup.rotation.y = enemyYaw;
+    scene.add(aiGroup);
+
+    aiGroup.visible = true;
+
+    snakeHead = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshBasicMaterial({ color: 0x0088ff })); 
+    snakeHead.visible = false; scene.add(snakeHead);
+}
+
+function init() {
+    scene = new THREE.Scene(); scene.background = new THREE.Color(0xdce7f0); scene.fog = new THREE.FogExp2(0xdce7f0, 0.0012);
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1200);
+    renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('three-canvas').innerHTML = ""; document.getElementById('three-canvas').appendChild(renderer.domElement);
+    initGameWorld();
+}
+
+window.addEventListener('mousedown', (e) => {
+    if (!gameActive || isPlayerDead) return; 
+    if (e.button === 0) isFiring = true;
+    if (e.button === 2) {
+        raycaster.setFromCamera(mouse, camera); 
+        const hits = raycaster.intersectObjects([floor, ...wallMeshes, ...userBlocks], true);
+        if (hits.length > 0) {
+            const h = hits[0];
+            if (wallMeshes.includes(h.object) && h.object.userData.wallTheme !== myTeam) return;
+            let ptTarget = calculatePlacementTarget(h); if (!ptTarget) return;
+            isDragging = true; depthOffset = 0; horizOffset = 0; dragStartMouse.set(mouse.x, mouse.y);
+            startPoint.copy(ptTarget);
+        }
+    }
+});
+window.addEventListener('mouseup', (e) => { if(e.button === 0) isFiring = false; if(e.button === 2) { isDragging = false; snakeHead.visible = false; }});
+window.addEventListener('mousemove', (e) => { mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1; document.getElementById('cursor-ui').style.left = e.clientX + 'px'; document.getElementById('cursor-ui').style.top = e.clientY + 'px'; });
+window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+window.addEventListener('keydown', e => { if (!gameActive || isPlayerDead) return; keys[e.code] = true; if (e.code === 'KeyG') tryRecruitPlayerSnail(); });
+window.addEventListener('keyup', e => keys[e.code] = false);
+window.addEventListener('contextmenu', e => e.preventDefault());
+
+function checkCollision(pos) {
+    if (Math.abs(pos.x) > 496 || Math.abs(pos.z) > 496) return true;
+    const box = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Vector3(2.5, 2, 2.5));
+    for (let b of [...userBlocks, ...aiBlocks]) { if (box.intersectsBox(new THREE.Box3().setFromObject(b))) return true; }
+    for (let sn of snails) {
+        if (!sn.isShattered && sn.group) {
+            const snailBox = new THREE.Box3().setFromCenterAndSize(sn.group.position, new THREE.Vector3(3.2, 3, 4.8));
+            if (box.intersectsBox(snailBox)) return true;
+        }
+    }
+    return false;
+}
+
+function updateOverheadUI() { 
+    if(!playerGroup || !aiGroup || !camera || !renderer) return; 
+    
+    const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 2.2; wp.project(camera); 
+    const pUi = document.getElementById('overhead-ui');
+    if (wp.z > 1 || Math.abs(wp.x) > 1.2 || Math.abs(wp.y) > 1.2 || isPlayerDead) {
+        pUi.style.display = 'none';
+    } else {
+        pUi.style.display = 'flex';
+        pUi.style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
+        pUi.style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
+        document.getElementById('player-hp-bar').style.width = `${Math.max(0, (playerHP / MAX_HP) * 100)}%`;
+    }
+
+    const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); 
+    const distToEnemy = playerGroup.position.distanceTo(ew);
+    
+    ew.y += 2.2; 
+    ew.project(camera); 
+    const eUi = document.getElementById('opponent-overhead-ui');
+
+    const inVisibilityRange = (distToEnemy <= 160) || (enemyHP < MAX_HP && distToEnemy <= 240);
+
+    if (wp.z > 1 || Math.abs(ew.x) > 1.2 || Math.abs(ew.y) > 1.2 || isEnemyDead || !inVisibilityRange) {
+        eUi.style.display = 'none';
+    } else {
+        eUi.style.display = 'flex';
+        eUi.style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
+        eUi.style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
+        
+        const scale = THREE.MathUtils.clamp(1.0 - (distToEnemy / 240) * 0.4, 0.65, 1.0);
+        eUi.style.transform = `translate(-50%, -100%) scale(${scale})`;
+        eUi.style.opacity = `${THREE.MathUtils.clamp(1.0 - (distToEnemy - 120) / 40, 0.35, 1.0)}`;
+        
+        document.getElementById('enemy-hp-bar').style.width = `${Math.max(0, (enemyHP / MAX_HP) * 100)}%`;
+    }
+}
+
+function triggerPlayerRangeWarning() {
+    const rw = document.getElementById('player-range-warning');
+    if (!rw) return;
+    rw.style.display = 'block';
+    if (playerWarningTimeout) clearTimeout(playerWarningTimeout);
+    playerWarningTimeout = setTimeout(() => { rw.style.display = 'none'; }, 800);
+}
+
+function triggerEnemyRangeWarning() {
+    const rw = document.getElementById('enemy-range-warning');
+    if (!rw) return;
+    rw.style.display = 'block';
+    if (enemyWarningTimeout) clearTimeout(enemyWarningTimeout);
+    enemyWarningTimeout = setTimeout(() => { rw.style.display = 'none'; }, 800);
+}
+
+function updateCounters() {
+    const myRunners = runners.filter(r => (myTeam === 'blue' ? r.isYellowRunner : !r.isYellowRunner) && !r.isShattered).length;
+    const mySnails = snails.filter(sn => (myTeam === 'blue' ? sn.isYellowTeam : !sn.isYellowTeam) && !sn.isShattered).length;
+    document.getElementById('vanguard-men').innerText = myRunners;
+    document.getElementById('vanguard-snails').innerText = mySnails;
+}
+
+function animate() {
+    requestAnimationFrame(animate); if (!renderer || !scene || !camera || !gameActive) return; 
+    
+    document.getElementById('player-gold').innerText = playerGold;
+    
+    updateOverheadUI();
+    updateCounters();
+
+    for (let i = debrisParticles.length - 1; i >= 0; i--) {
+        const p = debrisParticles[i];
+        p.position.add(p.userData.velocity);
+        p.userData.velocity.y -= 0.14;
+        p.userData.life--;
+        if (p.userData.life <= 30) {
+            p.scale.multiplyScalar(0.94);
+        }
+        if (p.userData.life <= 0) {
+            scene.remove(p);
+            debrisParticles.splice(i, 1);
+        }
+    }
+    
+    stalkers.forEach(s => s.update(playerGroup.position));
+
+    for (let i = runners.length - 1; i >= 0; i--) {
+        let r = runners[i];
+        if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
+        
+        let targetBasePos = r.isYellowRunner ? new THREE.Vector3(-465, 0, -465) : new THREE.Vector3(465, 0, 465);
+        let reachedEnemyBase = r.group.position.distanceTo(targetBasePos) < 14;
+        if (reachedEnemyBase) {
+            let targetBaseTeam = r.isYellowRunner ? 'red' : 'blue';
+            r.explode();
+            if (targetBaseTeam === 'red') {
+                triggerGameOver("BLUE TEAM WINS!", "YOUR RUNNER BREACHED THE ENEMY BASE!");
+            } else {
+                triggerGameOver("RED TEAM WINS!", "ENEMY RUNNER BREACHED YOUR BASE!");
+            }
+            continue;
+        }
+
+        let isEnemyRunner = (myTeam === 'blue' ? !r.isYellowRunner : r.isYellowRunner);
+        if (playerGroup.position.distanceTo(r.group.position) < 6.5 && !r.isShattered && isEnemyRunner) {
+            r.explode(); playerGold += 1; continue;
+        }
+
+        if (!r.isShattered) {
+            let tar = r.waypoints[r.currentWaypointIndex];
+            const runnerSize = new THREE.Vector3(2.2, 4, 2.2);
+            let steerDir = executeBugNavigation(r, r.group.position, tar, runnerSize, r.moveSpeed);
+            
+            if (steerDir) {
+                r.group.position.addScaledVector(steerDir, r.moveSpeed);
+                let lookTarget = r.group.position.clone().add(steerDir);
+                r.group.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
+                
+                let t = Date.now() * 0.015;
+                if (r.limbs['lArm']) r.limbs['lArm'].rotation.x = Math.sin(t) * 0.6;
+                if (r.limbs['rArm']) r.limbs['rArm'].rotation.x = -Math.sin(t) * 0.6;
+                if (r.limbs['lLeg']) r.limbs['lLeg'].rotation.x = -Math.sin(t) * 0.6;
+                if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = Math.sin(t) * 0.6;
+            }
+            
+            if (r.group.position.distanceTo(tar) < 16) {
+                r.currentWaypointIndex++;
+                r.navState = 'SEEK'; r.followSteps = 0;
+                if (r.currentWaypointIndex >= r.waypoints.length) {
+                    r.waypoints.push(targetBasePos);
+                }
+            }
+        } else { r.update(playerGroup.position); }
+    }
+
+    for (let i = snails.length - 1; i >= 0; i--) {
+        let sn = snails[i]; 
+        if (sn.markedForRemoval) { scene.remove(sn.group); snails.splice(i, 1); continue; }
+        
+        let targetBasePos = sn.isYellowTeam ? new THREE.Vector3(-465, 0, -465) : new THREE.Vector3(465, 0, 465);
+        let reachedEnemyBase = sn.group.position.distanceTo(targetBasePos) < 14;
+        if (reachedEnemyBase) {
+            let targetBaseTeam = sn.isYellowTeam ? 'red' : 'blue';
+            sn.explode();
+            if (targetBaseTeam === 'red') {
+                triggerGameOver("BLUE TEAM WINS!", "YOUR SNAIL BREACHED THE ENEMY BASE!");
+            } else {
+                triggerGameOver("RED TEAM WINS!", "ENEMY SNAIL BREACHED YOUR BASE!");
+            }
+            continue;
+        }
+
+        let isEnemySnail = (myTeam === 'blue' ? !sn.isYellowTeam : sn.isYellowTeam);
+        if (playerGroup.position.distanceTo(sn.group.position) < 7.0 && !sn.isShattered && isEnemySnail) {
+            sn.explode(); playerGold += 2; continue;
+        }
+
+        if (!sn.isShattered) {
+            let tar = sn.waypoints[sn.currentWaypointIndex];
+            if (!tar) continue;
+            
+            const snailSize = new THREE.Vector3(3.2, 3, 4.8);
+            let steerDir = executeBugNavigation(sn, sn.group.position, tar, snailSize, sn.moveSpeed);
+            
+            if (steerDir) {
+                sn.group.position.addScaledVector(steerDir, sn.moveSpeed);
+                let lookTarget = sn.group.position.clone().add(steerDir);
+                sn.group.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
+            }
+            
+            if (sn.group.position.distanceTo(tar) < 16) {
+                sn.currentWaypointIndex++;
+                sn.navState = 'SEEK'; 
+                if (sn.currentWaypointIndex >= sn.waypoints.length) {
+                    sn.waypoints.push(targetBasePos);
+                }
+            }
+        }
+    }
+
+    if (!isPlayerDead) {
+        if (!isTouchDevice) {
+            if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); 
+            if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); 
+        }
+        playerGroup.rotation.y = yaw;
+
+        let move = new THREE.Vector3(); 
+        if(keys['KeyW']) move.z -= 1; 
+        if(keys['KeyS']) move.z += 1; 
+        if(keys['KeyA']) move.x -= 1; 
+        if(keys['KeyD']) move.x += 1; 
+
+        if (move.length() > 0) { 
+            move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion); 
+            if(!checkCollision({x: playerGroup.position.x + move.x, y: 1, z: playerGroup.position.z + move.z})) { 
+                playerGroup.position.x += move.x; playerGroup.position.z += move.z; 
+            } 
+        }
+        if (isFiring && fireTimer++ % 7 === 0) fireWeapon();
+        
+        if (move.length() > 0 || Math.abs(mouse.x) > 0.3 || isTouchDevice) {
+            socket.emit('playerMove', { x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z, yaw: yaw });
+        }
+    }
+
+    // --- ENFORCE STRICT 3 CUBES HIGH MAX ON RMB DRAG ---
+    if (isDragging && !isPlayerDead) {
+        let fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), sd = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+        if (keys['KeyW']) depthOffset += 0.4; if (keys['KeyS']) depthOffset -= 0.4; if (keys['KeyA']) horizOffset -= 0.4; if (keys['KeyD']) horizOffset += 0.4;
+        let rawOff = new THREE.Vector3().addScaledVector(fwd, depthOffset * blockSize).addScaledVector(sd, horizOffset * blockSize);
+        
+        const stepsY = Math.min(2, Math.floor(Math.abs(mouse.y - dragStartMouse.y) * 15));
+        const signY = Math.sign(mouse.y - dragStartMouse.y);
+
+        if ((rawOff.length() > blockSize * 0.8) || (stepsY > 0)) {
+            let lk = new THREE.Vector3(0, 0, 0); 
+            if (Math.abs(rawOff.x) > Math.abs(rawOff.z)) { 
+                lk.x = Math.round(rawOff.x / blockSize) * blockSize; 
+            } else { 
+                lk.z = Math.round(rawOff.z / blockSize) * blockSize; 
+            }
+            let lastP = startPoint.clone();
+            for (let i = 0; i <= stepsY; i++) {
+                const p = startPoint.clone(); 
+                p.y += i * signY * blockSize; 
+                p.x += lk.x; 
+                p.z += lk.z; 
+                
+                if (p.y >= 2 && p.y <= (maxWallGridHeight - (blockSize / 2) + 0.1) && canBuildHere(p, true)) { 
+                    const k = `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`; 
+                    if (!existingCubes.has(k)) { 
+                        const col = myTeam === 'blue' ? 0x0077ff : 0xd03333;
+                        const c = createCube(p, col, 0x000000, col); 
+                        scene.add(c); userBlocks.push(c); existingCubes.set(k, c); 
+                        socket.emit('placeBlock', { x: p.x, y: p.y, z: p.z });
+                    } 
+                    lastP.copy(p); 
+                }
+            } 
+            snakeHead.position.copy(lastP).add(new THREE.Vector3(0, 3, 0)); 
+            snakeHead.visible = true;
+        } else { 
+            handlePlacement(); 
+        }
+    }
+
+    for(let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i]; b.position.add(b.userData.velocity); b.userData.life--;
+        if (b.userData.life <= 0) { scene.remove(b); bullets.splice(i, 1); continue; }
+
+        let enemyBaseX = (myTeam === 'blue') ? -400 : 400;
+        let enemyBaseZ = (myTeam === 'blue') ? -400 : 400;
+        let inEnemyBase = (myTeam === 'blue') ? (b.position.x <= enemyBaseX && b.position.z <= enemyBaseZ) : (b.position.x >= enemyBaseX && b.position.z >= enemyBaseZ);
+        
+        if (inEnemyBase) {
+            scene.remove(b); bullets.splice(i, 1); continue;
+        }
+
+        let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
+
+        // 1. LOCAL BULLETS CHECK ENEMY CRAFT
+        if (b.userData.isPlayerBullet && aiGroup && !isEnemyDead) {
+            let enemyBox = new THREE.Box3().setFromCenterAndSize(aiGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
+            if (enemyBox.containsPoint(b.position)) {
+                let distToTarget = playerGroup.position.distanceTo(aiGroup.position);
+
+                if (distToTarget > EFFECTIVE_COMBAT_RANGE) {
+                    let deflectAngle = new THREE.Vector3().subVectors(b.position, aiGroup.position).normalize();
+                    socket.emit('bulletDeflected', {
+                        targetTeam: opponentTeam,
+                        pos: { x: b.position.x, y: b.position.y, z: b.position.z },
+                        normal: { x: deflectAngle.x, y: deflectAngle.y, z: deflectAngle.z }
+                    });
+
+                    b.userData.velocity.set(
+                        (Math.random() - 0.5) * 4,
+                        Math.random() * 5 + 3,
+                        (Math.random() - 0.5) * 4
+                    );
+                    b.userData.isPlayerBullet = false;
+                    b.userData.life = 15;
+                    continue;
+                } else {
+                    let updatedEnemyHP = Math.max(0, enemyHP - DAMAGE_PER_SHOT);
+                    enemyHP = updatedEnemyHP;
+
+                    socket.emit('shipDamage', {
+                        targetTeam: opponentTeam,
+                        newHP: updatedEnemyHP
+                    });
+
+                    b.userData.life = 0;
+                    if (enemyHP <= 0) {
+                        socket.emit('playerKilled', { 
+                            targetTeam: opponentTeam, 
+                            deathPos: { x: aiGroup.position.x, y: aiGroup.position.y, z: aiGroup.position.z }
+                        });
+                    }
+                    scene.remove(b);
+                    bullets.splice(i, 1);
+                    continue;
+                }
+            }
+        }
+
+        // 2. REMOTE BULLETS CHECK LOCAL PLAYER CRAFT
+        if (!b.userData.isPlayerBullet && playerGroup && !isPlayerDead) {
+            let myBox = new THREE.Box3().setFromCenterAndSize(playerGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
+            if (myBox.containsPoint(b.position)) {
+                let distToEnemyShooter = playerGroup.position.distanceTo(aiGroup ? aiGroup.position : playerGroup.position);
+                
+                if (distToEnemyShooter > EFFECTIVE_COMBAT_RANGE) {
+                    let deflectAngle = new THREE.Vector3().subVectors(b.position, playerGroup.position).normalize();
+                    spawnRicochetSparks(b.position, deflectAngle);
+                    triggerPlayerRangeWarning();
+                    b.userData.velocity.set(
+                        (Math.random() - 0.5) * 4,
+                        Math.random() * 5 + 3,
+                        (Math.random() - 0.5) * 4
+                    );
+                    b.userData.life = 15;
+                    continue;
+                } else {
+                    scene.remove(b);
+                    bullets.splice(i, 1);
+                    continue;
+                }
+            }
+        }
+
+        // Pad / Base Man / Wall raycasting
+        let pool = [recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
+        stalkers.forEach(s => { if(!s.isShattered) pool.push(s.group); });
+        runners.forEach(s => { if(!s.isShattered) pool.push(s.group); });
+        snails.forEach(s => { if(!s.isShattered) pool.push(s.group); });
+
+        const bHit = (new THREE.Raycaster(b.position, b.userData.velocity.clone().normalize(), 0, 6)).intersectObjects(pool, true);
+        if(bHit.length > 0) {
+            let hObj = bHit[0].object, isPad = false, cPad = hObj; 
+            while(cPad && cPad !== scene) { if(cPad === recruitmentPad || cPad === enemyPad) { isPad = true; break; } cPad = cPad.parent; }
+            if (isPad) { if (b.userData.isPlayerBullet) tryRecruitPlayerSnail(); b.userData.life = 0; } 
+            else {
+                let ent = null, curr = hObj; 
+                while (curr && curr !== scene) { ent = [...stalkers, ...runners, ...snails].find(s => s.group === curr); if (ent) break; curr = curr.parent; }
+                if (ent) {
+                    if (b.userData.isPlayerBullet) {
+                        let hitMyBaseMan = (myTeam === 'blue' && ent === stalkers[1]) || (myTeam === 'red' && ent === stalkers[0]);
+                        if (hitMyBaseMan && playerGold >= 1) {
+                            playerGold -= 1;
+                            socket.emit('spawnUnit', { type: 'runner', team: myTeam });
+                        } else if (!ent.isYellowBaseMan && !ent.isBlueBaseMan) {
+                            ent.takeDamage(hObj.userData.partName || 'torso', 50, true);
+                        }
+                        b.userData.life = 0;
+                    }
+                } else if (hObj !== floor) {
+                    let r = hObj; while(r.parent && r.parent !== scene) r = r.parent;
+                    existingCubes.delete(`${Math.round(r.position.x)},${Math.round(r.position.y)},${Math.round(r.position.z)}`);
+                    scene.remove(r); userBlocks = userBlocks.filter(o => o !== r); aiBlocks = aiBlocks.filter(o => o !== r); b.userData.life = 0;
+                }
+            }
+        }
+    }
+    renderer.render(scene, camera);
+}
+init(); animate();
+</script>
+</body>
+</html>
