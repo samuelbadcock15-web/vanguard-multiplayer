@@ -258,7 +258,7 @@ let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 
 // --- 3 CUBES HIGH MAX CONSTRAINT ---
 const blockSize = 4;
-const maxWallGridHeight = 3 * blockSize; // Max 12 units high (center of 3rd cube is Y = 10)
+const maxWallGridHeight = 3 * blockSize; 
 const boatSpeed = 2.5, turnSpeed = 0.08;
 
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
@@ -663,7 +663,7 @@ function isInProtectedBase(x, z) {
 
 // 3 CUBES HIGH MAX CHECK
 function canBuildHere(pos, isPlayer) {
-    if (pos.y > (maxWallGridHeight - (blockSize / 2) + 0.1)) return false; // Enforce max 3 cubes high
+    if (pos.y > (maxWallGridHeight - (blockSize / 2) + 0.1)) return false; 
     if (isInProtectedBase(pos.x, pos.z)) return false;
     const diagSum = pos.x + pos.z;
     if (Math.abs(diagSum) < 8) return false;
@@ -807,9 +807,7 @@ function checkObstacleAt(pos, size) {
     if (Math.abs(pos.x) > 495 || Math.abs(pos.z) > 495) return true;
     const testBox = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(pos.x, 2, pos.z), size);
     for (let b of [...userBlocks, ...aiBlocks]) {
-        if (new THREE.Box3().setFromObject(b)) {
-            if (new THREE.Box3().setFromObject(b).intersectsBox(testBox)) return true;
-        }
+        if (new THREE.Box3().setFromObject(b).intersectsBox(testBox)) return true;
     }
     return false;
 }
@@ -849,7 +847,6 @@ function executeBugNavigation(entity, currentPos, targetPos, sizeVec, speed) {
     return directDir;
 }
 
-// FIXED: High-contrast grid lines and rotation-aware base-zone mapping
 function createAlignedWallTexture(theme, isZWall) {
     const canvas = document.createElement('canvas'); 
     canvas.width = 1000; 
@@ -904,6 +901,93 @@ function createAlignedFloorTexture() {
         }
     }
     const tex = new THREE.CanvasTexture(canvas); tex.wrapS = THREE.ClampToEdgeWrapping; tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+}
+
+// --- SNAIL EMBLEM TEXTURE FOR RECRUITMENT BASE CIRLCES ---
+function createSnailEmblemTexture(teamColorHex, accentColorHex, bgColorHex) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+
+    // Base background circle
+    ctx.fillStyle = bgColorHex;
+    ctx.beginPath();
+    ctx.arc(256, 256, 256, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Outer tactical ring
+    ctx.strokeStyle = teamColorHex;
+    ctx.lineWidth = 16;
+    ctx.beginPath();
+    ctx.arc(256, 256, 235, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.save();
+    ctx.translate(256, 265);
+
+    // Snail elongated foot / body
+    ctx.fillStyle = teamColorHex;
+    ctx.beginPath();
+    ctx.ellipse(20, 65, 145, 38, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Snail Head (facing right)
+    ctx.beginPath();
+    ctx.arc(130, 30, 42, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eyestalks
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = teamColorHex;
+    ctx.lineCap = 'round';
+
+    // Left stalk
+    ctx.beginPath();
+    ctx.moveTo(140, 0);
+    ctx.lineTo(165, -45);
+    ctx.stroke();
+    ctx.fillStyle = accentColorHex;
+    ctx.beginPath();
+    ctx.arc(165, -45, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Right stalk
+    ctx.beginPath();
+    ctx.moveTo(120, 0);
+    ctx.lineTo(135, -52);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(135, -52, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Shell Outer
+    ctx.fillStyle = accentColorHex;
+    ctx.beginPath();
+    ctx.arc(-25, -5, 88, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Shell Spiral Rings
+    ctx.strokeStyle = bgColorHex;
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.arc(-25, -5, 62, 0.4, Math.PI * 1.85);
+    ctx.stroke();
+
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(-20, -5, 38, 0.8, Math.PI * 2.1);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(-18, -5, 16, 0, Math.PI * 2);
+    ctx.fillStyle = bgColorHex;
+    ctx.fill();
+
+    ctx.restore();
+
+    const tex = new THREE.CanvasTexture(canvas);
     return tex;
 }
 
@@ -1009,11 +1093,28 @@ function initGameWorld() {
         scene.add(wl); wallMeshes.push(wl);
     });
 
-    recruitmentPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0x00aaff, roughness: 1.0, metalness: 0.0 })); 
-    recruitmentPad.position.set(465, 0.2, 465); scene.add(recruitmentPad);
+    // --- RECRUITMENT CIRCLES WITH FLAT SNAIL EMBLEMS ---
+    const padGeo = new THREE.CylinderGeometry(8, 8, 0.4, 32);
 
-    enemyPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 1.0, metalness: 0.0 })); 
-    enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
+    // Blue Base Pad with Snail Logo
+    const blueSnailTex = createSnailEmblemTexture('#00aaff', '#55d4ff', '#021024');
+    const bluePadSideMat = new THREE.MeshStandardMaterial({ color: 0x004488, roughness: 0.8 });
+    const bluePadTopMat = new THREE.MeshStandardMaterial({ map: blueSnailTex, roughness: 0.6 });
+    const bluePadBottomMat = bluePadSideMat;
+    recruitmentPad = new THREE.Mesh(padGeo, [bluePadSideMat, bluePadTopMat, bluePadBottomMat]);
+    recruitmentPad.position.set(465, 0.2, 465);
+    recruitmentPad.rotation.y = Math.PI / 4;
+    scene.add(recruitmentPad);
+
+    // Red Base Pad with Snail Logo
+    const redSnailTex = createSnailEmblemTexture('#ff3333', '#ff8888', '#200407');
+    const redPadSideMat = new THREE.MeshStandardMaterial({ color: 0x881111, roughness: 0.8 });
+    const redPadTopMat = new THREE.MeshStandardMaterial({ map: redSnailTex, roughness: 0.6 });
+    const redPadBottomMat = redPadSideMat;
+    enemyPad = new THREE.Mesh(padGeo, [redPadSideMat, redPadTopMat, redPadBottomMat]);
+    enemyPad.position.set(-465, 0.2, -465);
+    enemyPad.rotation.y = -3 * Math.PI / 4;
+    scene.add(enemyPad);
 
     stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; debrisParticles = []; existingCubes.clear();
     stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
