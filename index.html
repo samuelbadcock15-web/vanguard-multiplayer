@@ -394,4 +394,644 @@ socket.on('lobbies_update', (lobbies) => {
             const disableJoin = isInGame || isFull || currentRoomId !== null;
             actionButtonsHtml = `
                 <button class="btn-join" ${disableJoin ? 'disabled' : ''} onclick="joinRoom('${lobby.id}')">
-                    ${isInGame ? 'IN COMBAT' : (isFull ? 'ROOM FULL' : '
+                    ${isInGame ? 'IN COMBAT' : (isFull ? 'ROOM FULL' : 'JOIN ARENA')}
+                </button>
+            `;
+        }
+
+        card.innerHTML = `
+            <div>
+                <div class="card-top">
+                    <span class="arena-name">${lobby.name}</span>
+                    ${statusBadge}
+                </div>
+                <div class="player-slots">
+                    ${slot1Html}
+                    ${slot2Html}
+                </div>
+            </div>
+            <div class="card-actions">
+                ${actionButtonsHtml}
+            </div>
+        `;
+
+        grid.appendChild(card);
+    });
+});
+
+function joinRoom(roomId) { socket.emit('join_room', roomId); }
+function leaveRoom() { socket.emit('leave_room'); }
+function toggleReady(roomId) { socket.emit('toggle_ready', roomId); myReadyState = !myReadyState; }
+
+socket.on('room_joined', (data) => {
+    currentRoomId = data.roomId;
+    myTeam = data.team;
+    myReadyState = false;
+
+    document.getElementById('player-role-label').innerText = `${myTeam.toUpperCase()} COMMANDER: ONLINE`;
+
+    if (myTeam === 'red') {
+        playerSpawnPos.copy(RED_BASE);
+        yaw = RED_DEFAULT_YAW;
+        document.getElementById('player-badge-text').className = 'hud-vessel-title hud-red';
+        document.getElementById('opponent-badge-text').className = 'hud-vessel-title hud-blue';
+    } else {
+        playerSpawnPos.copy(BLUE_BASE);
+        yaw = BLUE_DEFAULT_YAW;
+        document.getElementById('player-badge-text').className = 'hud-vessel-title hud-blue';
+        document.getElementById('opponent-badge-text').className = 'hud-vessel-title hud-red';
+    }
+    if (scene) {
+        initGameWorld();
+    }
+});
+
+socket.on('left_room_success', () => {
+    currentRoomId = null;
+    myReadyState = false;
+});
+
+socket.on('lobby_error', (msg) => { alert(msg); });
+
+socket.on('start_match_countdown', (data) => {
+    myTeam = data.team;
+    document.getElementById('lobby-screen').style.display = 'none';
+    const countdownScreen = document.getElementById('countdown-screen');
+    const numberEl = document.getElementById('countdown-number');
+    const teamTextEl = document.getElementById('countdown-team-text');
+    
+    teamTextEl.innerText = `COMMANDING ${myTeam.toUpperCase()} VESSEL`;
+    teamTextEl.style.color = (myTeam === 'red') ? '#ff3333' : '#0088ff';
+    countdownScreen.style.display = 'flex';
+
+    let count = 3;
+    numberEl.innerText = count;
+
+    let timer = setInterval(() => {
+        count--;
+        if (count > 0) {
+            numberEl.innerText = count;
+        } else if (count === 0) {
+            numberEl.innerText = 'ENGAGE!';
+        } else {
+            clearInterval(timer);
+            countdownScreen.style.display = 'none';
+            gameActive = true;
+        }
+    }, 1000);
+});
+
+socket.on('enemyMove', (data) => {
+    if (aiGroup && !isEnemyDead) {
+        aiGroup.position.set(data.x, data.y, data.z);
+        aiGroup.rotation.y = data.yaw;
+        aiGroup.visible = true;
+    }
+});
+
+socket.on('enemyFire', (data) => {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 2.5), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0xee2222 : 0x0088ff }));
+    b.position.set(data.x, data.y, data.z);
+    b.userData.velocity = new THREE.Vector3(data.vx, data.vy, data.vz);
+    b.userData.life = 120;
+    b.userData.isPlayerBullet = false;
+    bullets.push(b);
+    scene.add(b);
+});
+
+socket.on('blockPlaced', (data) => {
+    const pos = new THREE.Vector3(data.x, data.y, data.z);
+    const k = `${Math.round(pos.x)},${Math.round(pos.y)},${Math.round(pos.z)}`;
+    if (!existingCubes.has(k) && pos.y <= maxWallGridHeight) {
+        const col = myTeam === 'blue' ? 0xd03333 : 0x0077ff;
+        const cb = createCube(pos, col, 0x000000, col);
+        scene.add(cb);
+        aiBlocks.push(cb);
+        existingCubes.set(k, cb);
+    }
+});
+
+socket.on('unitSpawned', (data) => {
+    if (data.type === 'snail') {
+        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(465, 0, 465));
+        else spawnRedSnail(new THREE.Vector3(-465, 0, -465));
+    }
+    if (data.type === 'runner') {
+        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(430, 0, 430));
+        else spawnRedRunner(new THREE.Vector3(-430, 0, -430));
+    }
+});
+
+// --- CROSS-DEVICE HEALTH BAR SYNCHRONIZATION ---
+socket.on('healthUpdate', (data) => {
+    if (data.targetTeam === myTeam) {
+        playerHP = data.newHP;
+    } else {
+        enemyHP = data.newHP;
+    }
+});
+
+// --- CROSS-DEVICE RICOCHET SYNCHRONIZATION ---
+socket.on('ricochetEvent', (data) => {
+    const hitVec = new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z);
+    const normVec = new THREE.Vector3(data.normal.x, data.normal.y, data.normal.z);
+    spawnRicochetSparks(hitVec, normVec);
+
+    if (data.targetTeam === myTeam) {
+        triggerPlayerRangeWarning();
+    } else {
+        triggerEnemyRangeWarning();
+    }
+});
+
+// ROBUST SHATTER DEBRIS SYSTEM
+function spawnShatterDebris(pos, colorHex) {
+    for (let i = 0; i < 50; i++) {
+        const p = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, 0.8, 0.8),
+            new THREE.MeshStandardMaterial({ color: colorHex, roughness: 1.0, metalness: 0.0 })
+        );
+        p.position.copy(pos).y += 1.5;
+        p.userData.velocity = new THREE.Vector3(
+            (Math.random() - 0.5) * 8,
+            Math.random() * 6 + 2,
+            (Math.random() - 0.5) * 8
+        );
+        p.userData.life = 120;
+        scene.add(p);
+        debrisParticles.push(p);
+    }
+}
+
+function spawnRicochetSparks(pos, normalDir) {
+    for (let i = 0; i < 8; i++) {
+        const sp = new THREE.Mesh(
+            new THREE.BoxGeometry(0.3, 0.3, 0.3),
+            new THREE.MeshBasicMaterial({ color: 0xffcc00 })
+        );
+        sp.position.copy(pos);
+        sp.userData.velocity = normalDir.clone()
+            .add(new THREE.Vector3((Math.random()-0.5)*3, Math.random()*3, (Math.random()-0.5)*3))
+            .normalize().multiplyScalar(4.5);
+        sp.userData.life = 20;
+        scene.add(sp);
+        debrisParticles.push(sp);
+    }
+}
+
+// RELIABLE DESTRUCTION & BASE RESPAWN
+socket.on('shipRespawn', (data) => {
+    const isTargetMe = (data.targetTeam === myTeam);
+    const deathVec = new THREE.Vector3(data.deathPos.x, data.deathPos.y, data.deathPos.z);
+    const teamColor = (data.targetTeam === 'blue') ? 0x0088ff : 0xee2222;
+
+    spawnShatterDebris(deathVec, teamColor);
+
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        scene.remove(bullets[i]);
+    }
+    bullets = [];
+
+    if (isTargetMe) {
+        isPlayerDead = true;
+        playerHP = 0;
+        keys = {}; 
+        
+        playerGroup.visible = false;
+        setTimeout(() => {
+            if (myTeam === 'blue') {
+                playerGroup.position.copy(BLUE_BASE);
+                yaw = BLUE_DEFAULT_YAW;
+            } else {
+                playerGroup.position.copy(RED_BASE);
+                yaw = RED_DEFAULT_YAW;
+            }
+            playerGroup.rotation.y = yaw;
+            playerHP = MAX_HP;
+            playerGroup.visible = true;
+            isPlayerDead = false;
+            
+            socket.emit('playerMove', { 
+                x: playerGroup.position.x, 
+                y: playerGroup.position.y, 
+                z: playerGroup.position.z, 
+                yaw: yaw 
+            });
+        }, 1200);
+
+    } else {
+        isEnemyDead = true;
+        enemyHP = 0;
+        if (aiGroup) aiGroup.visible = false;
+
+        setTimeout(() => {
+            enemyHP = MAX_HP;
+            if (aiGroup) {
+                if (myTeam === 'blue') {
+                    aiGroup.position.copy(RED_BASE);
+                    aiGroup.rotation.y = RED_DEFAULT_YAW;
+                } else {
+                    aiGroup.position.copy(BLUE_BASE);
+                    aiGroup.rotation.y = BLUE_DEFAULT_YAW;
+                }
+                aiGroup.visible = true;
+            }
+            isEnemyDead = false;
+        }, 1200);
+    }
+});
+
+socket.on('playerLeft', (data) => {
+    triggerGameOver("OPPONENT DISCONNECTED", "THE ENEMY COMMANDER HAS ABANDONED THE ARENA.");
+});
+
+function triggerGameOver(title, desc) {
+    if (!gameActive) return;
+    gameActive = false;
+    document.getElementById('winner-announcement').innerText = title;
+    document.getElementById('match-stats').innerText = `${desc}\n\nSNAILS SPAWNED: ${playerSnailsSpawned}`;
+    document.getElementById('game-over-screen').style.display = 'flex';
+}
+
+function toggleControls() { const p = document.getElementById('control-panel'); p.style.display = p.style.display === 'none' ? 'block' : 'none'; }
+
+function isInProtectedBase(x, z) {
+    if (x >= 400 && z >= 400) return 'blue';
+    if (x <= -400 && z <= -400) return 'red';
+    return null;
+}
+
+// 3 CUBES HIGH MAX CHECK
+function canBuildHere(pos, isPlayer) {
+    if (pos.y > (maxWallGridHeight - (blockSize / 2) + 0.1)) return false; // Enforce max 3 cubes high
+    if (isInProtectedBase(pos.x, pos.z)) return false;
+    const diagSum = pos.x + pos.z;
+    if (Math.abs(diagSum) < 8) return false;
+    if (isPlayer && myTeam === 'blue' && diagSum <= 0) return false;
+    if (isPlayer && myTeam === 'red' && diagSum >= 0) return false;
+    return true;
+}
+
+class CrimsonStalker {
+    constructor(cHex, sHex, isYBase=false, isRedRun=false, isYRun=false) {
+        this.group = new THREE.Group(); this.limbs = {}; this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
+        this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0;
+        this.shatterHex = sHex; this.isYellowBaseMan = isYBase; this.isRedRunner = isRedRun; this.isYellowRunner = isYRun;
+        
+        this.navState = 'SEEK';
+        this.wallFollowDir = Math.random() > 0.5 ? 1 : -1;
+        this.followSteps = 0;
+        this.startFollowPos = new THREE.Vector3();
+        this.currentHeading = new THREE.Vector3(0, 0, 1);
+        
+        const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
+        const createPart = (n, w, h, d, y, p) => {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.y = y; m.userData.partName = n; m.castShadow = true; p.add(m); this.limbs[n] = m; return m;
+        };
+        const t = createPart('torso', 2, 3, 1, 4, this.group); createPart('head', 1.2, 1.2, 1.2, 2.2, t);
+        createPart('lArm', 0.6, 2.5, 0.6, 0.2, t).position.x = -1.5; createPart('rArm', 0.6, 2.5, 0.6, 0.2, t).position.x = 1.5;
+        createPart('lLeg', 0.8, 3, 0.8, -3, t).position.x = -0.6; createPart('rLeg', 0.8, 3, 0.8, -3, t).position.x = 0.6;
+        this.group.userData.entity = this;
+        scene.add(this.group);
+    }
+    takeDamage(part, amt, hitPl) {
+        if (this.isShattered || !this.limbs[part]) return;
+        if (this.isYellowBaseMan) return; 
+        this.health[part] -= (part === 'head' ? amt * 3 : amt);
+        const s = Math.max(0.1, this.health[part] / 100); this.limbs[part].scale.set(s, s, s);
+        if (this.health.head <= 0 || this.health.torso <= 0) { this.explode(); }
+    }
+    explode() {
+        if (this.isShattered) return; this.isShattered = true; this.group.visible = false;
+        for (let i = 0; i < 40; i++) {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshStandardMaterial({ color: this.shatterHex, roughness: 1.0, metalness: 0.0 }));
+            p.position.copy(this.group.position).y += 2; p.userData.velocity = new THREE.Vector3((Math.random()-0.5)*4, Math.random()*4, (Math.random()-0.5)*4);
+            scene.add(p); this.shatterParticles.push(p);
+        }
+    }
+    update(tPos) {
+        if (this.isShattered) {
+            this.shatterTimer++;
+            this.shatterParticles.forEach(p => {
+                if (this.shatterTimer < 30) { p.position.add(p.userData.velocity); p.userData.velocity.y -= 0.15; } 
+                else { p.position.lerp(this.group.position, 0.1); p.scale.multiplyScalar(0.9); }
+            });
+            if (this.shatterTimer > 60) {
+                this.shatterParticles.forEach(p => scene.remove(p)); this.shatterParticles = [];
+                if (this.isYellowRunner || this.isRedRunner) this.markedForRemoval = true; else this.reset();
+            } return;
+        } 
+        this.group.lookAt(tPos.x, this.group.position.y, tPos.z);
+    }
+    reset() {
+        this.shatterParticles.forEach(p => scene.remove(p)); this.shatterParticles = []; this.isShattered = false; this.group.visible = true;
+        for (let p in this.health) { this.health[p] = 100; if (this.limbs[p]) this.limbs[p].scale.set(1, 1, 1); }
+    }
+}
+
+class CrimsonSnail {
+    constructor(cHex, isYTeam=false) {
+        this.group = new THREE.Group(); this.health = 120; this.isShattered = false; this.isYellowTeam = isYTeam;
+        this.moveSpeed = 0.5; this.currentWaypointIndex = 0; this.waypoints = [];
+        this.navState = 'SEEK'; this.wallFollowDir = Math.random() > 0.5 ? 1 : -1; this.followSteps = 0; this.startFollowPos = new THREE.Vector3(); this.currentHeading = new THREE.Vector3(0, 0, 1);
+        
+        const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
+        const sh = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 2.0, 8), mat); sh.rotation.z = Math.PI / 2; sh.position.y = 2; this.group.add(sh);
+        const b = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 4.5), mat); b.position.y = 0.5; this.group.add(b);
+        
+        [-0.5, 0.5].forEach(o => {
+            const s = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.5), mat); 
+            s.position.set(o, 1.5, 1.8); 
+            const eb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), new THREE.MeshBasicMaterial({ color: 0x111111 })); eb.position.y = 0.75;
+            s.add(eb); this.group.add(s);
+        });
+        
+        this.group.userData.entity = this; scene.add(this.group);
+    }
+    takeDamage(amt, hitPl) {
+        if (this.isShattered) return; this.health -= amt;
+        if (this.health <= 0) { if (hitPl) playerGold += 2; this.explode(); }
+    }
+    explode() {
+        if (this.isShattered) return;
+        this.isShattered = true; this.group.visible = false; this.markedForRemoval = true;
+        for (let i = 0; i < 15; i++) {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshStandardMaterial({ color: this.isYellowTeam ? 0x0088ff : 0xd93838, roughness: 1.0, metalness: 0.0 }));
+            p.position.copy(this.group.position); p.userData.velocity = new THREE.Vector3((Math.random()-0.5)*4, Math.random()*4, (Math.random()-0.5)*4);
+            scene.add(p); setTimeout(() => scene.remove(p), 1000);
+        }
+    }
+}
+
+function tryRecruitPlayerSnail() {
+    if (!gameActive) return; 
+    let n = Date.now(); if (n - lastRecruitTime < recruitCooldown) return;
+    if (playerGold >= 2) { 
+        playerGold -= 2; 
+        socket.emit('spawnUnit', { type: 'snail', team: myTeam });
+        lastRecruitTime = n; 
+    }
+}
+
+function spawnYellowSnail(pos) { 
+    playerSnailsSpawned++; 
+    let sn = new CrimsonSnail(0x0077ff, true); 
+    sn.group.position.copy(pos); 
+    sn.waypoints = [new THREE.Vector3(-465, 0, -465)]; 
+    snails.push(sn); 
+}
+
+function spawnRedSnail(pos) { 
+    aiSnailsSpawned++; 
+    let sn = new CrimsonSnail(0xcc2222, false); 
+    sn.group.position.copy(pos); 
+    sn.waypoints = [new THREE.Vector3(465, 0, 465)]; 
+    snails.push(sn); 
+}
+
+function spawnYellowRunner(pos) { 
+    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true); 
+    r.group.position.copy(pos); 
+    r.waypoints = [new THREE.Vector3(490, 0, 490), new THREE.Vector3(490, 0, -490), new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-465, 0, -465)]; 
+    r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
+}
+
+function spawnRedRunner(pos) { 
+    let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); 
+    r.group.position.copy(pos); 
+    r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, 490), new THREE.Vector3(490, 0, 490), new THREE.Vector3(465, 0, 465)]; 
+    r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
+}
+
+function checkObstacleAt(pos, size) {
+    if (Math.abs(pos.x) > 495 || Math.abs(pos.z) > 495) return true;
+    const testBox = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(pos.x, 2, pos.z), size);
+    for (let b of [...userBlocks, ...aiBlocks]) {
+        if (new THREE.Box3().setFromObject(b)) {
+            if (new THREE.Box3().setFromObject(b).intersectsBox(testBox)) return true;
+        }
+    }
+    return false;
+}
+
+function executeBugNavigation(entity, currentPos, targetPos, sizeVec, speed) {
+    let toTarget = new THREE.Vector3().subVectors(targetPos, currentPos); toTarget.y = 0;
+    let directDir = toTarget.clone().normalize();
+    let directStep = currentPos.clone().addScaledVector(directDir, speed * 2.2);
+    let directClear = !checkObstacleAt(directStep, sizeVec);
+
+    if (entity.navState === 'TRAPPED') {
+        if (directClear) { entity.navState = 'SEEK'; entity.followSteps = 0; }
+        else { return null; }
+    }
+    if (entity.navState === 'SEEK') {
+        if (directClear) { entity.currentHeading.copy(directDir); return directDir; }
+        else {
+            entity.navState = 'WALL_FOLLOW'; entity.followSteps = 0; entity.startFollowPos.copy(currentPos);
+            let rightDir = directDir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
+            let rightClear = !checkObstacleAt(currentPos.clone().addScaledVector(rightDir, speed * 2.0), sizeVec);
+            entity.wallFollowDir = rightClear ? -1 : 1;
+            entity.currentHeading.copy(directDir).applyAxisAngle(new THREE.Vector3(0, 1, 0), (Math.PI / 2) * entity.wallFollowDir);
+        }
+    }
+    if (entity.navState === 'WALL_FOLLOW') {
+        entity.followSteps++;
+        if (entity.followSteps > 60 && currentPos.distanceTo(entity.startFollowPos) < 12) { entity.navState = 'TRAPPED'; return null; }
+        if (directClear && entity.followSteps > 15) { entity.navState = 'SEEK'; entity.followSteps = 0; return directDir; }
+        let moveHeading = null;
+        for (let a of [-Math.PI/3 * entity.wallFollowDir, 0, Math.PI/2 * entity.wallFollowDir]) {
+            let probeDir = entity.currentHeading.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
+            if (!checkObstacleAt(currentPos.clone().addScaledVector(probeDir, speed * 2.0), sizeVec)) { moveHeading = probeDir; break; }
+        }
+        if (moveHeading) { entity.currentHeading.copy(moveHeading); return moveHeading; }
+        else { entity.wallFollowDir *= -1; return null; }
+    }
+    return directDir;
+}
+
+// FIXED: High-contrast grid lines and rotation-aware base-zone mapping
+function createAlignedWallTexture(theme, isZWall) {
+    const canvas = document.createElement('canvas'); 
+    canvas.width = 1000; 
+    canvas.height = 100;
+    const ctx = canvas.getContext('2d');
+    
+    const isBlue = theme === 'blue';
+    const tileBg = isBlue ? '#0a1a36' : '#33080e';
+    const baseTileBg = isBlue ? '#041026' : '#1f0407'; 
+    const lineCol = isBlue ? '#002b55' : '#450b12'; 
+
+    ctx.fillStyle = isBlue ? '#08142b' : '#26060a'; 
+    ctx.fillRect(0, 0, 1000, 100 - maxWallGridHeight);
+
+    for (let u = 2; u < 1000; u += blockSize) {
+        let posCoord = u - 500;
+        
+        let isBaseWall = false;
+        if (isBlue) {
+            isBaseWall = isZWall ? (posCoord <= -400) : (posCoord >= 400);
+        } else {
+            isBaseWall = isZWall ? (posCoord <= -400) : (posCoord >= 400);
+        }
+
+        for (let y = 0; y < maxWallGridHeight; y += blockSize) {
+            let v = 100 - y - blockSize;
+            ctx.fillStyle = isBaseWall ? baseTileBg : tileBg; 
+            ctx.fillRect(u, v, blockSize, blockSize);
+            ctx.strokeStyle = lineCol; 
+            ctx.lineWidth = 1;
+            ctx.strokeRect(u, v, blockSize, blockSize);
+        }
+    }
+    const tex = new THREE.CanvasTexture(canvas); 
+    tex.wrapS = THREE.ClampToEdgeWrapping; 
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+}
+
+function createAlignedFloorTexture() {
+    const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 1000;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#140003'; ctx.fillRect(0, 0, 1000, 1000);
+    for (let x = 2; x < 1000; x += blockSize) {
+        for (let z = 2; z < 1000; z += blockSize) {
+            let worldX = x - 500, worldZ = z - 500;
+            const isBlue = (x + z) >= 1000;
+            const baseZone = isInProtectedBase(worldX, worldZ);
+            ctx.fillStyle = baseZone === 'blue' ? '#030814' : baseZone === 'red' ? '#140205' : isBlue ? '#0a1a36' : '#33080e';
+            ctx.fillRect(x, z, blockSize, blockSize);
+            ctx.strokeStyle = isBlue ? '#000814' : '#140003'; ctx.strokeRect(x, z, blockSize, blockSize);
+        }
+    }
+    const tex = new THREE.CanvasTexture(canvas); tex.wrapS = THREE.ClampToEdgeWrapping; tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+}
+
+function createCube(pos, col, emCol, outCol = 0x334455) {
+    const g = new THREE.Group(), geo = new THREE.BoxGeometry(blockSize-0.08, blockSize-0.08, blockSize-0.08);
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: col, roughness: 1.0, metalness: 0.0 }));
+    const out = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: outCol }));
+    g.add(m, out); g.position.copy(pos); return g;
+}
+
+function createShip(col) {
+    const g = new THREE.Group(), m = new THREE.MeshStandardMaterial({ color: 0x1d2228, roughness: 1.0, metalness: 0.0 });
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.2, 5), m));
+    const c = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.8, 2.5), new THREE.MeshStandardMaterial({ color: col, roughness: 1.0, metalness: 0.0 })); c.position.set(0, 1.8, -0.8); g.add(c);
+    const sL = new THREE.Mesh(sirenGeo, new THREE.MeshStandardMaterial({ color: 0x333333 })), sR = sL.clone(); sL.position.set(-0.55, 2.2, -0.8); sR.position.set(0.55, 2.2, -0.8); g.add(sL, sR);
+    const lt = new THREE.PointLight(col, 0, 40); lt.position.set(0, 3, -0.8); g.add(lt);
+    const turs = [];
+    [[-1.8, 1.2], [1.8, 1.2]].forEach(p => {
+        const b = new THREE.Group(); b.position.set(p[0], p[1], -1.5);
+        const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 2.5), new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 1.0, metalness: 0.0 })); bar.rotation.x = Math.PI/2; bar.position.z = -1;
+        const bg = new THREE.Group(); bg.add(bar); b.add(bg); g.add(b); turs.push({ base: b, barrel: bg });
+    });
+    return { group: g, sL, sR, light: lt, turrets: turs };
+}
+
+function calculatePlacementTarget(hit) {
+    let tPos = new THREE.Vector3();
+    if (hit.object === floor) {
+        tPos.set(Math.round(hit.point.x / blockSize) * blockSize, blockSize / 2, Math.round(hit.point.z / blockSize) * blockSize);
+    } else if (wallMeshes.includes(hit.object)) {
+        if (hit.point.y > maxWallGridHeight) return null;
+        let norm = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : new THREE.Vector3();
+        let pt = hit.point.clone().addScaledVector(norm, blockSize / 2);
+        let snappedY = Math.round((pt.y - blockSize / 2) / blockSize) * blockSize + blockSize / 2;
+        if (snappedY > maxWallGridHeight) return null;
+        tPos.set(Math.round(pt.x / blockSize) * blockSize, Math.max(blockSize / 2, snappedY), Math.round(pt.z / blockSize) * blockSize);
+    } else {
+        let r = hit.object; while(r.parent && r.parent !== scene) r = r.parent;
+        tPos.copy(r.position).add(hit.face.normal.clone().multiplyScalar(blockSize));
+    }
+    return tPos;
+}
+
+function handlePlacement() {
+    raycaster.setFromCamera(mouse, camera); 
+    const hits = raycaster.intersectObjects([floor, ...wallMeshes, ...userBlocks], true);
+    if (hits.length > 0) {
+        const h = hits[0];
+        if (wallMeshes.includes(h.object) && h.object.userData.wallTheme !== myTeam) return;
+        let tPos = calculatePlacementTarget(h);
+        if (!tPos || !canBuildHere(tPos, true)) return;
+        const k = `${Math.round(tPos.x)},${Math.round(tPos.y)},${Math.round(tPos.z)}`;
+        if (!existingCubes.has(k)) { 
+            const col = myTeam === 'blue' ? 0x0077ff : 0xd03333;
+            const b = createCube(tPos, col, 0x000000, col); 
+            scene.add(b); userBlocks.push(b); existingCubes.set(k, b); 
+            socket.emit('placeBlock', { x: tPos.x, y: tPos.y, z: tPos.z });
+        }
+    }
+}
+
+function fireWeapon() {
+    if (isPlayerDead) return;
+    turrets.forEach(t => {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0x0066ff : 0xff3333 })), wp = new THREE.Vector3();
+        t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); raycaster.setFromCamera(mouse, camera);
+        
+        const pool = [scene, floor, recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
+        if (aiGroup && !isEnemyDead) pool.push(aiGroup);
+        stalkers.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
+        runners.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
+        snails.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
+        const hits = raycaster.intersectObjects(pool, true); if (hits.length > 0) { hits.sort((a, b) => a.distance - b.distance); tar.copy(hits[0].point); } else { raycaster.ray.at(200, tar); }
+        b.lookAt(tar); 
+        let vel = tar.sub(wp).normalize().multiplyScalar(6);
+        b.userData.velocity = vel; b.userData.life = 120; b.userData.isPlayerBullet = true; scene.add(b); bullets.push(b);
+        socket.emit('playerFire', { x: wp.x, y: wp.y, z: wp.z, vx: vel.x, vy: vel.y, vz: vel.z });
+    });
+}
+
+function initGameWorld() {
+    if (scene) { while(scene.children.length > 0){ scene.remove(scene.children[0]); } }
+    
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xb0bec5, 0.85); hemiLight.position.set(0, 200, 0); scene.add(hemiLight);
+    dirLight = new THREE.DirectionalLight(0xffffff, 1.2); dirLight.position.set(200, 300, 150); scene.add(dirLight);
+
+    const floorTexture = createAlignedFloorTexture();
+    floor = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 1.0, metalness: 0.0 })); 
+    floor.rotation.x = -Math.PI / 2; scene.add(floor);
+
+    const redWallZTex = createAlignedWallTexture('red', true); const redWallXTex = createAlignedWallTexture('red', false);
+    const blueWallZTex = createAlignedWallTexture('blue', true); const blueWallXTex = createAlignedWallTexture('blue', false);
+
+    const redWallZMat = new THREE.MeshBasicMaterial({ map: redWallZTex, side: THREE.DoubleSide });
+    const redWallXMat = new THREE.MeshBasicMaterial({ map: redWallXTex, side: THREE.DoubleSide });
+    const blueWallZMat = new THREE.MeshBasicMaterial({ map: blueWallZTex, side: THREE.DoubleSide });
+    const blueWallXMat = new THREE.MeshBasicMaterial({ map: blueWallXTex, side: THREE.DoubleSide });
+
+    wallMeshes = []; const lim = 498;
+    [ { z: -lim, r: 0, mat: redWallZMat, theme: 'red' }, { x: -lim, r: Math.PI / 2, mat: redWallXMat, theme: 'red' }, { z: lim, r: Math.PI, mat: blueWallZMat, theme: 'blue' }, { x: lim, r: -Math.PI / 2, mat: blueWallXMat, theme: 'blue' } ].forEach(w => { 
+        const wl = new THREE.Mesh(new THREE.PlaneGeometry(1000, 100), w.mat); 
+        if (w.z) wl.position.z = w.z; if (w.x) wl.position.x = w.x; wl.position.y = 50; wl.rotation.y = w.r; wl.userData.wallTheme = w.theme;
+        scene.add(wl); wallMeshes.push(wl);
+    });
+
+    recruitmentPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0x00aaff, roughness: 1.0, metalness: 0.0 })); 
+    recruitmentPad.position.set(465, 0.2, 465); scene.add(recruitmentPad);
+
+    enemyPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 1.0, metalness: 0.0 })); 
+    enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
+
+    stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; debrisParticles = []; existingCubes.clear();
+    stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
+    stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
+
+    const laneMarkerGeo = new THREE.PlaneGeometry(6, 25);
+    const blueLaneMat = new THREE.MeshBasicMaterial({ color: 0x00aaff, side: THREE.DoubleSide, transparent: true, opacity: 0.6 });
+    const redLaneMat = new THREE.MeshBasicMaterial({ color: 0xff3333, side: THREE.DoubleSide, transparent: true, opacity: 0.6 });
+    
+    const blueLane = new THREE.Mesh(laneMarkerGeo, blueLaneMat);
+    blueLane.rotation.x = -Math.PI / 2;
+    blueLane.position.set(460, 0.25, 490);
+    scene.add(blueLane);
+
+    const redLane = new THREE.Mesh(laneMarkerGeo, redLaneMat);
+    redLane.rotation.x = -Math.PI / 2;
+    redLane.position.set(-460, 0.25, -490);
+    scene.add(redLane);
+
+    sirenGeo = new THREE.BoxGeometry(0.7, 0.25, 0.5);
+    let myColor
