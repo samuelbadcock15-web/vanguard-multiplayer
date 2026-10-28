@@ -258,7 +258,7 @@ let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 
 // --- 3 CUBES HIGH MAX CONSTRAINT ---
 const blockSize = 4;
-const maxWallGridHeight = 3 * blockSize; // Max 12 units high (center of 3rd cube is Y = 10)
+const maxWallGridHeight = 3 * blockSize; 
 const boatSpeed = 2.5, turnSpeed = 0.08;
 
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
@@ -282,7 +282,7 @@ let isEnemyDead = false;
 let playerWarningTimeout = null;
 let enemyWarningTimeout = null;
 
-// Base spawn coordinates facing inward toward center (0,0,0)
+// Base spawn coordinates
 const BLUE_BASE = new THREE.Vector3(430, 0, 430);
 const BLUE_DEFAULT_YAW = 0.785;
 const RED_BASE = new THREE.Vector3(-430, 0, -430);
@@ -544,7 +544,6 @@ socket.on('ricochetEvent', (data) => {
     }
 });
 
-// ROBUST SHATTER DEBRIS SYSTEM
 function spawnShatterDebris(pos, colorHex) {
     for (let i = 0; i < 50; i++) {
         const p = new THREE.Mesh(
@@ -663,7 +662,7 @@ function isInProtectedBase(x, z) {
 
 // 3 CUBES HIGH MAX CHECK
 function canBuildHere(pos, isPlayer) {
-    if (pos.y > (maxWallGridHeight - (blockSize / 2) + 0.1)) return false; // Enforce max 3 cubes high
+    if (pos.y > (maxWallGridHeight - (blockSize / 2) + 0.1)) return false; 
     if (isInProtectedBase(pos.x, pos.z)) return false;
     const diagSum = pos.x + pos.z;
     if (Math.abs(diagSum) < 8) return false;
@@ -804,7 +803,8 @@ function spawnRedRunner(pos) {
 }
 
 function checkObstacleAt(pos, size) {
-    if (Math.abs(pos.x) > 495 || Math.abs(pos.z) > 495) return true;
+    // PREVENT MINIONS FROM WALKING OFF BOUNDS
+    if (Math.abs(pos.x) > 492 || Math.abs(pos.z) > 492) return true;
     const testBox = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(pos.x, 2, pos.z), size);
     for (let b of [...userBlocks, ...aiBlocks]) {
         if (new THREE.Box3().setFromObject(b).intersectsBox(testBox)) return true;
@@ -1017,8 +1017,10 @@ function initGameWorld() {
     let pData = createShip(myColor);
     playerGroup = pData.group; turrets = pData.turrets;
     playerGroup.position.copy(playerSpawnPos); playerGroup.rotation.y = yaw; scene.add(playerGroup); 
-    playerGroup.add(camera); camera.position.set(0, 7, 15); camera.lookAt(0, 0, -20);
     
+    // Camera is a direct child of the scene, smoothly constrained around playerGroup
+    scene.add(camera);
+
     let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
     let eData = createShip(enemyColor); 
     aiGroup = eData.group; 
@@ -1064,9 +1066,12 @@ window.addEventListener('keydown', e => { if (!gameActive || isPlayerDead) retur
 window.addEventListener('keyup', e => keys[e.code] = false);
 window.addEventListener('contextmenu', e => e.preventDefault());
 
+// CLAMP CRAFT POSITION SO CAMERA HAS ROOM AND BOAT NEVER BREACHES OUTER WALLS
 function checkCollision(pos) {
-    if (Math.abs(pos.x) > 496 || Math.abs(pos.z) > 496) return true;
-    const box = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Vector3(2.5, 2, 2.5));
+    const arenaBoundary = 482; // Safe distance allowing 15 units clearance for camera
+    if (Math.abs(pos.x) > arenaBoundary || Math.abs(pos.z) > arenaBoundary) return true;
+    
+    const box = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Vector3(3.2, 2.5, 4.0));
     for (let b of [...userBlocks, ...aiBlocks]) { if (box.intersectsBox(new THREE.Box3().setFromObject(b))) return true; }
     for (let sn of snails) {
         if (!sn.isShattered && sn.group) {
@@ -1077,9 +1082,37 @@ function checkCollision(pos) {
     return false;
 }
 
+function updateCameraPosition() {
+    if (!playerGroup) return;
+
+    // Ideal camera offset relative to playerGroup
+    const targetOffset = new THREE.Vector3(0, 7, 15);
+    targetOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+
+    let desiredCamPos = playerGroup.position.clone().add(targetOffset);
+
+    // Wall margin clamp: Arena walls are at +-498. Camera stops strictly at +-486
+    const CAM_LIMIT = 486;
+    if (Math.abs(desiredCamPos.x) > CAM_LIMIT || Math.abs(desiredCamPos.z) > CAM_LIMIT) {
+        // Linearly slide camera closer to the boat to preserve visibility inside the map
+        const directionToPlayer = new THREE.Vector3().subVectors(playerGroup.position, desiredCamPos).normalize();
+        
+        while ((Math.abs(desiredCamPos.x) > CAM_LIMIT || Math.abs(desiredCamPos.z) > CAM_LIMIT) && desiredCamPos.distanceTo(playerGroup.position) > 4) {
+            desiredCamPos.addScaledVector(directionToPlayer, 0.5);
+        }
+    }
+
+    camera.position.copy(desiredCamPos);
+    
+    // Look ahead of vessel
+    const lookTarget = playerGroup.position.clone().add(new THREE.Vector3(0, 1.5, -15).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw));
+    camera.lookAt(lookTarget);
+}
+
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
+    // Local player UI
     const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 2.2; wp.project(camera); 
     const pUi = document.getElementById('overhead-ui');
     if (wp.z > 1 || Math.abs(wp.x) > 1.2 || Math.abs(wp.y) > 1.2 || isPlayerDead) {
@@ -1091,6 +1124,7 @@ function updateOverheadUI() {
         document.getElementById('player-hp-bar').style.width = `${Math.max(0, (playerHP / MAX_HP) * 100)}%`;
     }
 
+    // Opponent UI: Distance Culled
     const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); 
     const distToEnemy = playerGroup.position.distanceTo(ew);
     
@@ -1143,6 +1177,9 @@ function animate() {
     
     document.getElementById('player-gold').innerText = playerGold;
     
+    // UPDATE CAMERA ANTI-CLIP POSITION
+    updateCameraPosition();
+
     updateOverheadUI();
     updateCounters();
 
@@ -1282,13 +1319,11 @@ function animate() {
         }
     }
 
-    // --- ENFORCE STRICT 3 CUBES HIGH MAX ON RMB DRAG ---
     if (isDragging && !isPlayerDead) {
         let fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), sd = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
         if (keys['KeyW']) depthOffset += 0.4; if (keys['KeyS']) depthOffset -= 0.4; if (keys['KeyA']) horizOffset -= 0.4; if (keys['KeyD']) horizOffset += 0.4;
         let rawOff = new THREE.Vector3().addScaledVector(fwd, depthOffset * blockSize).addScaledVector(sd, horizOffset * blockSize);
         
-        // Clamp steps so vertical stacking never exceeds 3 cubes total
         const stepsY = Math.min(2, Math.floor(Math.abs(mouse.y - dragStartMouse.y) * 15));
         const signY = Math.sign(mouse.y - dragStartMouse.y);
 
@@ -1306,7 +1341,6 @@ function animate() {
                 p.x += lk.x; 
                 p.z += lk.z;
                 
-                // Enforce strictly <= 3 cubes high (max height = 12 units)
                 if (p.y >= 2 && p.y <= (maxWallGridHeight - (blockSize / 2) + 0.1) && canBuildHere(p, true)) { 
                     const k = `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`; 
                     if (!existingCubes.has(k)) { 
@@ -1339,9 +1373,7 @@ function animate() {
 
         let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
 
-        // =========================================================================
-        // 1. LOCAL BULLETS CHECK ENEMY CRAFT (SHOOTER SIDE)
-        // =========================================================================
+        // 1. LOCAL BULLETS CHECK ENEMY CRAFT
         if (b.userData.isPlayerBullet && aiGroup && !isEnemyDead) {
             let enemyBox = new THREE.Box3().setFromCenterAndSize(aiGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
             if (enemyBox.containsPoint(b.position)) {
@@ -1386,9 +1418,7 @@ function animate() {
             }
         }
 
-        // =========================================================================
-        // 2. REMOTE BULLETS CHECK LOCAL PLAYER CRAFT (VICTIM SIDE)
-        // =========================================================================
+        // 2. REMOTE BULLETS CHECK LOCAL PLAYER CRAFT
         if (!b.userData.isPlayerBullet && playerGroup && !isPlayerDead) {
             let myBox = new THREE.Box3().setFromCenterAndSize(playerGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
             if (myBox.containsPoint(b.position)) {
@@ -1413,7 +1443,7 @@ function animate() {
             }
         }
 
-        // Pad / Base Man / Wall raycasting
+        // Raycasting for pads, base men, and blocks
         let pool = [recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
         stalkers.forEach(s => { if(!s.isShattered) pool.push(s.group); });
         runners.forEach(s => { if(!s.isShattered) pool.push(s.group); });
