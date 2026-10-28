@@ -214,7 +214,7 @@
     </div>
 </div>
 
-<!-- SLEEK OVERHEAD UI -->
+<!-- OVERHEAD UI -->
 <div id="overhead-ui">
     <span id="player-badge-text" class="hud-vessel-title hud-blue">VESSEL</span>
     <div class="hp-bar-container"><div id="player-hp-bar" class="hp-fill"></div></div>
@@ -904,7 +904,7 @@ function createAlignedFloorTexture() {
     return tex;
 }
 
-// --- SNAIL EMBLEM TEXTURE FOR RECRUITMENT BASE CIRLCES ---
+// --- SNAIL EMBLEM TEXTURE FOR RECRUITMENT BASE CIRCLES ---
 function createSnailEmblemTexture(teamColorHex, accentColorHex, bgColorHex) {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
@@ -933,7 +933,7 @@ function createSnailEmblemTexture(teamColorHex, accentColorHex, bgColorHex) {
     ctx.ellipse(20, 65, 145, 38, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Snail Head (facing right)
+    // Snail Head
     ctx.beginPath();
     ctx.arc(130, 30, 42, 0, Math.PI * 2);
     ctx.fill();
@@ -987,8 +987,7 @@ function createSnailEmblemTexture(teamColorHex, accentColorHex, bgColorHex) {
 
     ctx.restore();
 
-    const tex = new THREE.CanvasTexture(canvas);
-    return tex;
+    return new THREE.CanvasTexture(canvas);
 }
 
 function createCube(pos, col, emCol, outCol = 0x334455) {
@@ -1096,22 +1095,20 @@ function initGameWorld() {
     // --- RECRUITMENT CIRCLES WITH FLAT SNAIL EMBLEMS ---
     const padGeo = new THREE.CylinderGeometry(8, 8, 0.4, 32);
 
-    // Blue Base Pad with Snail Logo
+    // Blue Base Pad
     const blueSnailTex = createSnailEmblemTexture('#00aaff', '#55d4ff', '#021024');
     const bluePadSideMat = new THREE.MeshStandardMaterial({ color: 0x004488, roughness: 0.8 });
     const bluePadTopMat = new THREE.MeshStandardMaterial({ map: blueSnailTex, roughness: 0.6 });
-    const bluePadBottomMat = bluePadSideMat;
-    recruitmentPad = new THREE.Mesh(padGeo, [bluePadSideMat, bluePadTopMat, bluePadBottomMat]);
+    recruitmentPad = new THREE.Mesh(padGeo, [bluePadSideMat, bluePadTopMat, bluePadSideMat]);
     recruitmentPad.position.set(465, 0.2, 465);
     recruitmentPad.rotation.y = Math.PI / 4;
     scene.add(recruitmentPad);
 
-    // Red Base Pad with Snail Logo
+    // Red Base Pad
     const redSnailTex = createSnailEmblemTexture('#ff3333', '#ff8888', '#200407');
     const redPadSideMat = new THREE.MeshStandardMaterial({ color: 0x881111, roughness: 0.8 });
     const redPadTopMat = new THREE.MeshStandardMaterial({ map: redSnailTex, roughness: 0.6 });
-    const redPadBottomMat = redPadSideMat;
-    enemyPad = new THREE.Mesh(padGeo, [redPadSideMat, redPadTopMat, redPadBottomMat]);
+    enemyPad = new THREE.Mesh(padGeo, [redPadSideMat, redPadTopMat, redPadSideMat]);
     enemyPad.position.set(-465, 0.2, -465);
     enemyPad.rotation.y = -3 * Math.PI / 4;
     scene.add(enemyPad);
@@ -1199,39 +1196,49 @@ function checkCollision(pos) {
     return false;
 }
 
+// FIXED: Prevents inverted projections of offscreen entities from floating in the sky
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
-    const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 2.2; wp.project(camera); 
+    // 1. LOCAL PLAYER HUD
+    const wp = new THREE.Vector3(); 
+    playerGroup.getWorldPosition(wp); 
+    wp.y += 2.2; 
+    wp.project(camera); 
+    
     const pUi = document.getElementById('overhead-ui');
-    if (wp.z > 1 || Math.abs(wp.x) > 1.2 || Math.abs(wp.y) > 1.2 || isPlayerDead) {
+    if (wp.z > 1 || wp.z < -1 || Math.abs(wp.x) > 1.1 || Math.abs(wp.y) > 1.1 || isPlayerDead) {
         pUi.style.display = 'none';
     } else {
         pUi.style.display = 'flex';
-        pUi.style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
-        pUi.style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
+        pUi.style.left = `${(wp.x * 0.5 + 0.5) * window.innerWidth}px`; 
+        pUi.style.top = `${(-(wp.y * 0.5) + 0.5) * window.innerHeight}px`; 
         document.getElementById('player-hp-bar').style.width = `${Math.max(0, (playerHP / MAX_HP) * 100)}%`;
     }
 
-    const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); 
+    // 2. OPPONENT HUD
+    const ew = new THREE.Vector3(); 
+    aiGroup.getWorldPosition(ew); 
     const distToEnemy = playerGroup.position.distanceTo(ew);
     
     ew.y += 2.2; 
     ew.project(camera); 
     const eUi = document.getElementById('opponent-overhead-ui');
 
-    const inVisibilityRange = (distToEnemy <= 160) || (enemyHP < MAX_HP && distToEnemy <= 240);
+    const inVisibilityRange = (distToEnemy <= 130);
 
-    if (wp.z > 1 || Math.abs(ew.x) > 1.2 || Math.abs(ew.y) > 1.2 || isEnemyDead || !inVisibilityRange) {
+    // Guard with ew.z instead of wp.z to stop inverted sky floating
+    if (ew.z > 1 || ew.z < -1 || Math.abs(ew.x) > 1.1 || Math.abs(ew.y) > 1.1 || isEnemyDead || !inVisibilityRange || !aiGroup.visible) {
         eUi.style.display = 'none';
     } else {
         eUi.style.display = 'flex';
-        eUi.style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
-        eUi.style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
+        eUi.style.left = `${(ew.x * 0.5 + 0.5) * window.innerWidth}px`; 
+        eUi.style.top = `${(-(ew.y * 0.5) + 0.5) * window.innerHeight}px`; 
         
-        const scale = THREE.MathUtils.clamp(1.0 - (distToEnemy / 240) * 0.4, 0.65, 1.0);
+        const scale = THREE.MathUtils.clamp(1.0 - (distToEnemy / 150) * 0.4, 0.6, 1.0);
+        const opacity = THREE.MathUtils.clamp(1.0 - (distToEnemy - 80) / 50, 0.0, 1.0);
         eUi.style.transform = `translate(-50%, -100%) scale(${scale})`;
-        eUi.style.opacity = `${THREE.MathUtils.clamp(1.0 - (distToEnemy - 120) / 40, 0.35, 1.0)}`;
+        eUi.style.opacity = `${opacity}`;
         
         document.getElementById('enemy-hp-bar').style.width = `${Math.max(0, (enemyHP / MAX_HP) * 100)}%`;
     }
