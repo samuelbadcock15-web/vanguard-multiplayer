@@ -190,7 +190,7 @@
     <div class="dpad-btn" id="dpad-down">&#9660;</div>
 </div>
 
-<!-- 6-ROOM LOBBY OVERLAY -->
+<!-- LOBBY OVERLAY -->
 <div id="lobby-screen">
     <div class="lobby-header">
         <h1>VANGUARD COMBAT ARENA</h1>
@@ -235,7 +235,7 @@
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
-                [W/A/S/D] MOVE | [MOUSE/TOUCH] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!<br><span style="color:#ff3333;">ROUNDS CANNOT ENTER ENEMY BASE ZONE!</span>
+                [W/A/S/D] MOVE | [MOUSE/TOUCH] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS (MAX 3 HIGH) | SHOOT BASE MAN FOR MEN!<br><span style="color:#ff3333;">ROUNDS CANNOT ENTER ENEMY BASE ZONE!</span>
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
@@ -255,8 +255,12 @@ let userBlocks = [], aiBlocks = [], wallMeshes = [], bullets = [], turrets = [],
 let isDragging = false, isFiring = false, fireTimer = 0;
 let startPoint = new THREE.Vector3(), dragStartMouse = new THREE.Vector2();
 let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
-const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08;
-const maxWallGridHeight = 8 * blockSize;
+
+// --- 3 CUBES HIGH MAX CONSTRAINT ---
+const blockSize = 4;
+const maxWallGridHeight = 3 * blockSize; // Max 12 units high (center of 3rd cube is Y = 10)
+const boatSpeed = 2.5, turnSpeed = 0.08;
+
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
 let playerGold = 100;
 let gameActive = false, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
@@ -266,7 +270,7 @@ let aiGroup, aiTurrets = [];
 let stalkers = [], runners = [], snails = [], sirenGeo;
 let debrisParticles = [];
 
-// --- BALANCED HP & SYNCHRONIZATION SETTINGS ---
+// Balanced HP & Range Settings
 const MAX_HP = 300;
 const DAMAGE_PER_SHOT = 10;
 const EFFECTIVE_COMBAT_RANGE = 140;
@@ -490,7 +494,7 @@ socket.on('enemyFire', (data) => {
     b.position.set(data.x, data.y, data.z);
     b.userData.velocity = new THREE.Vector3(data.vx, data.vy, data.vz);
     b.userData.life = 120;
-    b.userData.isPlayerBullet = false; // Came from remote enemy
+    b.userData.isPlayerBullet = false;
     bullets.push(b);
     scene.add(b);
 });
@@ -498,7 +502,7 @@ socket.on('enemyFire', (data) => {
 socket.on('blockPlaced', (data) => {
     const pos = new THREE.Vector3(data.x, data.y, data.z);
     const k = `${Math.round(pos.x)},${Math.round(pos.y)},${Math.round(pos.z)}`;
-    if (!existingCubes.has(k)) {
+    if (!existingCubes.has(k) && pos.y <= maxWallGridHeight) {
         const col = myTeam === 'blue' ? 0xd03333 : 0x0077ff;
         const cb = createCube(pos, col, 0x000000, col);
         scene.add(cb);
@@ -553,7 +557,7 @@ function spawnShatterDebris(pos, colorHex) {
             Math.random() * 6 + 2,
             (Math.random() - 0.5) * 8
         );
-        p.userData.life = 120; // Lasts full 2 seconds
+        p.userData.life = 120;
         scene.add(p);
         debrisParticles.push(p);
     }
@@ -581,10 +585,8 @@ socket.on('shipRespawn', (data) => {
     const deathVec = new THREE.Vector3(data.deathPos.x, data.deathPos.y, data.deathPos.z);
     const teamColor = (data.targetTeam === 'blue') ? 0x0088ff : 0xee2222;
 
-    // Both clients spawn the exact same death debris in world space
     spawnShatterDebris(deathVec, teamColor);
 
-    // Flush all active bullets so late-flying shots don't hit the clean respawn
     for (let i = bullets.length - 1; i >= 0; i--) {
         scene.remove(bullets[i]);
     }
@@ -659,7 +661,9 @@ function isInProtectedBase(x, z) {
     return null;
 }
 
+// 3 CUBES HIGH MAX CHECK
 function canBuildHere(pos, isPlayer) {
+    if (pos.y > (maxWallGridHeight - (blockSize / 2) + 0.1)) return false; // Enforce max 3 cubes high
     if (isInProtectedBase(pos.x, pos.z)) return false;
     const diagSum = pos.x + pos.z;
     if (Math.abs(diagSum) < 8) return false;
@@ -1076,7 +1080,6 @@ function checkCollision(pos) {
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
-    // Local player UI: always visible to self
     const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 2.2; wp.project(camera); 
     const pUi = document.getElementById('overhead-ui');
     if (wp.z > 1 || Math.abs(wp.x) > 1.2 || Math.abs(wp.y) > 1.2 || isPlayerDead) {
@@ -1088,7 +1091,6 @@ function updateOverheadUI() {
         document.getElementById('player-hp-bar').style.width = `${Math.max(0, (playerHP / MAX_HP) * 100)}%`;
     }
 
-    // Opponent UI: Distance Culled & Cleanly Scaled
     const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); 
     const distToEnemy = playerGroup.position.distanceTo(ew);
     
@@ -1144,14 +1146,13 @@ function animate() {
     updateOverheadUI();
     updateCounters();
 
-    // SOLID PARTICLE SYSTEM (Lingers cleanly, no premature disappearances)
     for (let i = debrisParticles.length - 1; i >= 0; i--) {
         const p = debrisParticles[i];
         p.position.add(p.userData.velocity);
-        p.userData.velocity.y -= 0.14; // Gravity
+        p.userData.velocity.y -= 0.14;
         p.userData.life--;
         if (p.userData.life <= 30) {
-            p.scale.multiplyScalar(0.94); // Only shrink in final frames
+            p.scale.multiplyScalar(0.94);
         }
         if (p.userData.life <= 0) {
             scene.remove(p);
@@ -1281,17 +1282,32 @@ function animate() {
         }
     }
 
+    // --- ENFORCE STRICT 3 CUBES HIGH MAX ON RMB DRAG ---
     if (isDragging && !isPlayerDead) {
         let fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), sd = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
         if (keys['KeyW']) depthOffset += 0.4; if (keys['KeyS']) depthOffset -= 0.4; if (keys['KeyA']) horizOffset -= 0.4; if (keys['KeyD']) horizOffset += 0.4;
         let rawOff = new THREE.Vector3().addScaledVector(fwd, depthOffset * blockSize).addScaledVector(sd, horizOffset * blockSize);
-        const stepsY = Math.floor(Math.abs(mouse.y - dragStartMouse.y) * 15), signY = Math.sign(mouse.y - dragStartMouse.y);
+        
+        // Clamp steps so vertical stacking never exceeds 3 cubes total
+        const stepsY = Math.min(2, Math.floor(Math.abs(mouse.y - dragStartMouse.y) * 15));
+        const signY = Math.sign(mouse.y - dragStartMouse.y);
+
         if ((rawOff.length() > blockSize * 0.8) || (stepsY > 0)) {
-            let lk = new THREE.Vector3(0, 0, 0); if (Math.abs(rawOff.x) > Math.abs(rawOff.z)) { lk.x = Math.round(rawOff.x / blockSize) * blockSize; } else { lk.z = Math.round(rawOff.z / blockSize) * blockSize; }
+            let lk = new THREE.Vector3(0, 0, 0); 
+            if (Math.abs(rawOff.x) > Math.abs(rawOff.z)) { 
+                lk.x = Math.round(rawOff.x / blockSize) * blockSize; 
+            } else { 
+                lk.z = Math.round(rawOff.z / blockSize) * blockSize; 
+            }
             let lastP = startPoint.clone();
             for (let i = 0; i <= stepsY; i++) {
-                const p = startPoint.clone(); p.y += i * signY * blockSize; p.x += lk.x; p.z += lk.z;
-                if (p.y >= 2 && canBuildHere(p, true)) { 
+                const p = startPoint.clone(); 
+                p.y += i * signY * blockSize; 
+                p.x += lk.x; 
+                p.z += lk.z;
+                
+                // Enforce strictly <= 3 cubes high (max height = 12 units)
+                if (p.y >= 2 && p.y <= (maxWallGridHeight - (blockSize / 2) + 0.1) && canBuildHere(p, true)) { 
                     const k = `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`; 
                     if (!existingCubes.has(k)) { 
                         const col = myTeam === 'blue' ? 0x0077ff : 0xd03333;
@@ -1301,8 +1317,12 @@ function animate() {
                     } 
                     lastP.copy(p); 
                 }
-            } snakeHead.position.copy(lastP).add(new THREE.Vector3(0, 3, 0)); snakeHead.visible = true;
-        } else { handlePlacement(); }
+            } 
+            snakeHead.position.copy(lastP).add(new THREE.Vector3(0, 3, 0)); 
+            snakeHead.visible = true;
+        } else { 
+            handlePlacement(); 
+        }
     }
 
     for(let i = bullets.length - 1; i >= 0; i--) {
@@ -1320,7 +1340,7 @@ function animate() {
         let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
 
         // =========================================================================
-        // 1. SYMMETRIC HITBOX: LOCAL BULLETS CHECK ENEMY CRAFT (SHOOTER SIDE)
+        // 1. LOCAL BULLETS CHECK ENEMY CRAFT (SHOOTER SIDE)
         // =========================================================================
         if (b.userData.isPlayerBullet && aiGroup && !isEnemyDead) {
             let enemyBox = new THREE.Box3().setFromCenterAndSize(aiGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
@@ -1367,7 +1387,7 @@ function animate() {
         }
 
         // =========================================================================
-        // 2. SYMMETRIC HITBOX: REMOTE BULLETS CHECK LOCAL PLAYER CRAFT (VICTIM SIDE)
+        // 2. REMOTE BULLETS CHECK LOCAL PLAYER CRAFT (VICTIM SIDE)
         // =========================================================================
         if (!b.userData.isPlayerBullet && playerGroup && !isPlayerDead) {
             let myBox = new THREE.Box3().setFromCenterAndSize(playerGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
@@ -1375,7 +1395,6 @@ function animate() {
                 let distToEnemyShooter = playerGroup.position.distanceTo(aiGroup ? aiGroup.position : playerGroup.position);
                 
                 if (distToEnemyShooter > EFFECTIVE_COMBAT_RANGE) {
-                    // Visually bounce off victim locally
                     let deflectAngle = new THREE.Vector3().subVectors(b.position, playerGroup.position).normalize();
                     spawnRicochetSparks(b.position, deflectAngle);
                     triggerPlayerRangeWarning();
@@ -1387,7 +1406,6 @@ function animate() {
                     b.userData.life = 15;
                     continue;
                 } else {
-                    // Direct hit absorbed by victim
                     scene.remove(b);
                     bullets.splice(i, 1);
                     continue;
