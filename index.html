@@ -24,11 +24,13 @@
         
         #overhead-ui, #opponent-overhead-ui { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
         
-        .status-badge { position: relative; background: #0088ff; color: #fff; padding: 4px 8px; font-size: 9px; font-weight: bold; border-radius: 2px; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,0,0,0.5); overflow: hidden; min-width: 120px; text-align: center; }
-        .status-badge-ai { background: #cc2222; color: #fff; padding: 4px 8px; font-size: 9px; font-weight: bold; border-radius: 2px; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,0,0,0.5); min-width: 120px; text-align: center; }
+        .status-badge { position: relative; background: #0088ff; color: #fff; padding: 4px 8px; font-size: 9px; font-weight: bold; border-radius: 2px; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,0,0,0.5); overflow: hidden; min-width: 130px; text-align: center; }
+        .status-badge-ai { background: #cc2222; color: #fff; padding: 4px 8px; font-size: 9px; font-weight: bold; border-radius: 2px; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,0,0,0.5); min-width: 130px; text-align: center; }
 
-        .hp-bar-container { width: 100%; height: 4px; background: rgba(0,0,0,0.6); margin-top: 3px; border-radius: 2px; overflow: hidden; }
-        .hp-fill { height: 100%; width: 100%; background: #00ff88; transition: width 0.1s ease; }
+        .hp-bar-container { width: 100%; height: 5px; background: rgba(0,0,0,0.7); margin-top: 3px; border-radius: 2px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2); }
+        .hp-fill { height: 100%; width: 100%; background: #00ff88; transition: width 0.08s linear; }
+
+        .range-warning-text { font-size: 9px; color: #ffaa00; font-weight: bold; text-shadow: 0 0 4px #000; display: none; margin-top: 2px; letter-spacing: 1px; }
 
         /* --- 6-ROOM LOBBY OVERLAY --- */
         #lobby-screen { 
@@ -176,15 +178,16 @@
 
 <div id="overhead-ui">
     <div id="player-status-badge" class="status-badge">
-        <span id="player-badge-text">VESSEL: 100 HP</span>
+        <span id="player-badge-text">VESSEL: 300 HP</span>
         <div class="hp-bar-container"><div id="player-hp-bar" class="hp-fill"></div></div>
     </div>
 </div>
 
 <div id="opponent-overhead-ui">
     <div id="opponent-status-badge" class="status-badge-ai">
-        <span id="opponent-badge-text">ENEMY: 100 HP</span>
+        <span id="opponent-badge-text">ENEMY: 300 HP</span>
         <div class="hp-bar-container"><div id="enemy-hp-bar" class="hp-fill"></div></div>
+        <div id="enemy-range-warning" class="range-warning-text">DEFLECTED: OUT OF RANGE</div>
     </div>
 </div>
 
@@ -227,15 +230,22 @@ let aiGroup, aiTurrets = [];
 let stalkers = [], runners = [], snails = [], sirenGeo;
 let debrisParticles = [];
 
-// SHIP HEALTH SYSTEM
-let playerHP = 100;
-let enemyHP = 100;
+// --- BALANCED HP & COMBAT RANGE SETTINGS ---
+const MAX_HP = 300;
+const DAMAGE_PER_SHOT = 10;
+const EFFECTIVE_COMBAT_RANGE = 140; // Vessels must be within 140 units to deal damage
+
+let playerHP = MAX_HP;
+let enemyHP = MAX_HP;
+let isPlayerDead = false;
+let isEnemyDead = false;
+let rangeWarningTimeout = null;
 
 // Base spawn coordinates facing inward toward center (0,0,0)
 const BLUE_BASE = new THREE.Vector3(430, 0, 430);
-const BLUE_DEFAULT_YAW = 0.785;  // Inward facing toward Red base
+const BLUE_DEFAULT_YAW = 0.785;
 const RED_BASE = new THREE.Vector3(-430, 0, -430);
-const RED_DEFAULT_YAW = -2.356; // Inward facing toward Blue base
+const RED_DEFAULT_YAW = -2.356;
 
 // Mobile Detection & Touch Controls
 const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
@@ -427,7 +437,7 @@ socket.on('start_match_countdown', (data) => {
 });
 
 socket.on('enemyMove', (data) => {
-    if (aiGroup) {
+    if (aiGroup && !isEnemyDead) {
         aiGroup.position.set(data.x, data.y, data.z);
         aiGroup.rotation.y = data.yaw;
         aiGroup.visible = true;
@@ -485,7 +495,23 @@ function spawnShatterDebris(pos, colorHex) {
     }
 }
 
-// RELIABLE DESTRUCTION & BASE RESPAWN
+function spawnRicochetSparks(pos, normalDir) {
+    for (let i = 0; i < 6; i++) {
+        const sp = new THREE.Mesh(
+            new THREE.BoxGeometry(0.25, 0.25, 0.25),
+            new THREE.MeshBasicMaterial({ color: 0xffcc00 })
+        );
+        sp.position.copy(pos);
+        sp.userData.velocity = normalDir.clone()
+            .add(new THREE.Vector3((Math.random()-0.5)*2, Math.random()*2, (Math.random()-0.5)*2))
+            .normalize().multiplyScalar(3.5);
+        sp.userData.life = 15;
+        scene.add(sp);
+        debrisParticles.push(sp);
+    }
+}
+
+// RELIABLE DESTRUCTION & BASE RESPAWN (WITH BULLET CLEANUP)
 socket.on('shipRespawn', (data) => {
     const isTargetMe = (data.targetTeam === myTeam);
     const deathVec = new THREE.Vector3(data.deathPos.x, data.deathPos.y, data.deathPos.z);
@@ -493,34 +519,59 @@ socket.on('shipRespawn', (data) => {
 
     spawnShatterDebris(deathVec, teamColor);
 
+    // WIPE OUTSTANDING BULLETS so trailing shots can't hit the freshly respawned vessel
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        scene.remove(bullets[i]);
+    }
+    bullets = [];
+
     if (isTargetMe) {
-        playerHP = 100;
-        keys = {}; // Clear active inputs
-        if (myTeam === 'blue') {
-            playerGroup.position.copy(BLUE_BASE);
-            yaw = BLUE_DEFAULT_YAW;
-        } else {
-            playerGroup.position.copy(RED_BASE);
-            yaw = RED_DEFAULT_YAW;
-        }
-        playerGroup.rotation.y = yaw;
-        socket.emit('playerMove', { 
-            x: playerGroup.position.x, 
-            y: playerGroup.position.y, 
-            z: playerGroup.position.z, 
-            yaw: yaw 
-        });
-    } else {
-        enemyHP = 100;
-        if (aiGroup) {
+        isPlayerDead = true;
+        playerHP = 0;
+        keys = {}; 
+        
+        // Hide during death frame, respawn clean at base after 700ms
+        playerGroup.visible = false;
+        setTimeout(() => {
             if (myTeam === 'blue') {
-                aiGroup.position.copy(RED_BASE);
-                aiGroup.rotation.y = RED_DEFAULT_YAW;
+                playerGroup.position.copy(BLUE_BASE);
+                yaw = BLUE_DEFAULT_YAW;
             } else {
-                aiGroup.position.copy(BLUE_BASE);
-                aiGroup.rotation.y = BLUE_DEFAULT_YAW;
+                playerGroup.position.copy(RED_BASE);
+                yaw = RED_DEFAULT_YAW;
             }
-        }
+            playerGroup.rotation.y = yaw;
+            playerHP = MAX_HP;
+            playerGroup.visible = true;
+            isPlayerDead = false;
+            
+            socket.emit('playerMove', { 
+                x: playerGroup.position.x, 
+                y: playerGroup.position.y, 
+                z: playerGroup.position.z, 
+                yaw: yaw 
+            });
+        }, 700);
+
+    } else {
+        isEnemyDead = true;
+        enemyHP = 0;
+        if (aiGroup) aiGroup.visible = false;
+
+        setTimeout(() => {
+            enemyHP = MAX_HP;
+            if (aiGroup) {
+                if (myTeam === 'blue') {
+                    aiGroup.position.copy(RED_BASE);
+                    aiGroup.rotation.y = RED_DEFAULT_YAW;
+                } else {
+                    aiGroup.position.copy(BLUE_BASE);
+                    aiGroup.rotation.y = BLUE_DEFAULT_YAW;
+                }
+                aiGroup.visible = true;
+            }
+            isEnemyDead = false;
+        }, 700);
     }
 });
 
@@ -826,12 +877,13 @@ function handlePlacement() {
 }
 
 function fireWeapon() {
+    if (isPlayerDead) return;
     turrets.forEach(t => {
         const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0x0066ff : 0xff3333 })), wp = new THREE.Vector3();
         t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); raycaster.setFromCamera(mouse, camera);
         
         const pool = [scene, floor, recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
-        if (aiGroup) pool.push(aiGroup);
+        if (aiGroup && !isEnemyDead) pool.push(aiGroup);
         stalkers.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         runners.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         snails.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
@@ -923,7 +975,7 @@ function init() {
 }
 
 window.addEventListener('mousedown', (e) => {
-    if (!gameActive) return; 
+    if (!gameActive || isPlayerDead) return; 
     if (e.button === 0) isFiring = true;
     if (e.button === 2) {
         raycaster.setFromCamera(mouse, camera); 
@@ -940,7 +992,7 @@ window.addEventListener('mousedown', (e) => {
 window.addEventListener('mouseup', (e) => { if(e.button === 0) isFiring = false; if(e.button === 2) { isDragging = false; snakeHead.visible = false; }});
 window.addEventListener('mousemove', (e) => { mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1; document.getElementById('cursor-ui').style.left = e.clientX + 'px'; document.getElementById('cursor-ui').style.top = e.clientY + 'px'; });
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
-window.addEventListener('keydown', e => { if (!gameActive) return; keys[e.code] = true; if (e.code === 'KeyG') tryRecruitPlayerSnail(); });
+window.addEventListener('keydown', e => { if (!gameActive || isPlayerDead) return; keys[e.code] = true; if (e.code === 'KeyG') tryRecruitPlayerSnail(); });
 window.addEventListener('keyup', e => keys[e.code] = false);
 window.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -960,31 +1012,38 @@ function checkCollision(pos) {
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
-    // Update local player badge & HP bar
+    // Local player UI
     const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 1.8; wp.project(camera); 
     const pUi = document.getElementById('overhead-ui');
-    if (wp.z > 1 || Math.abs(wp.x) > 1.2 || Math.abs(wp.y) > 1.2) {
+    if (wp.z > 1 || Math.abs(wp.x) > 1.2 || Math.abs(wp.y) > 1.2 || isPlayerDead) {
         pUi.style.display = 'none';
     } else {
         pUi.style.display = 'flex';
         pUi.style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
         pUi.style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
         document.getElementById('player-badge-text').innerText = `VESSEL: ${playerHP} HP`;
-        document.getElementById('player-hp-bar').style.width = `${Math.max(0, playerHP)}%`;
+        document.getElementById('player-hp-bar').style.width = `${Math.max(0, (playerHP / MAX_HP) * 100)}%`;
     }
 
-    // Update opponent badge & HP bar
+    // Opponent UI
     const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); ew.y += 1.8; ew.project(camera); 
     const eUi = document.getElementById('opponent-overhead-ui');
-    if (ew.z > 1 || Math.abs(ew.x) > 1.2 || Math.abs(ew.y) > 1.2) {
+    if (ew.z > 1 || Math.abs(ew.x) > 1.2 || Math.abs(ew.y) > 1.2 || isEnemyDead) {
         eUi.style.display = 'none';
     } else {
         eUi.style.display = 'flex';
         eUi.style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
         eUi.style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
         document.getElementById('opponent-badge-text').innerText = `ENEMY: ${enemyHP} HP`;
-        document.getElementById('enemy-hp-bar').style.width = `${Math.max(0, enemyHP)}%`;
+        document.getElementById('enemy-hp-bar').style.width = `${Math.max(0, (enemyHP / MAX_HP) * 100)}%`;
     }
+}
+
+function triggerEnemyRangeWarning() {
+    const rw = document.getElementById('enemy-range-warning');
+    rw.style.display = 'block';
+    if (rangeWarningTimeout) clearTimeout(rangeWarningTimeout);
+    rangeWarningTimeout = setTimeout(() => { rw.style.display = 'none'; }, 800);
 }
 
 function updateCounters() {
@@ -1002,13 +1061,13 @@ function animate() {
     updateOverheadUI();
     updateCounters();
 
-    // Debris particle physics
+    // Particle tick
     for (let i = debrisParticles.length - 1; i >= 0; i--) {
         const p = debrisParticles[i];
         p.position.add(p.userData.velocity);
         p.userData.velocity.y -= 0.12;
         p.userData.life--;
-        p.scale.multiplyScalar(0.96);
+        p.scale.multiplyScalar(0.95);
         if (p.userData.life <= 0) {
             scene.remove(p);
             debrisParticles.splice(i, 1);
@@ -1053,7 +1112,7 @@ function animate() {
                 if (r.limbs['lArm']) r.limbs['lArm'].rotation.x = Math.sin(t) * 0.6;
                 if (r.limbs['rArm']) r.limbs['rArm'].rotation.x = -Math.sin(t) * 0.6;
                 if (r.limbs['lLeg']) r.limbs['lLeg'].rotation.x = -Math.sin(t) * 0.6;
-                if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = -Math.sin(t) * 0.6;
+                if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = Math.sin(t) * 0.6;
             }
             
             if (r.group.position.distanceTo(tar) < 16) {
@@ -1111,31 +1170,33 @@ function animate() {
         }
     }
 
-    if (!isTouchDevice) {
-        if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); 
-        if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); 
-    }
-    playerGroup.rotation.y = yaw;
+    if (!isPlayerDead) {
+        if (!isTouchDevice) {
+            if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); 
+            if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); 
+        }
+        playerGroup.rotation.y = yaw;
 
-    let move = new THREE.Vector3(); 
-    if(keys['KeyW']) move.z -= 1; 
-    if(keys['KeyS']) move.z += 1; 
-    if(keys['KeyA']) move.x -= 1; 
-    if(keys['KeyD']) move.x += 1; 
+        let move = new THREE.Vector3(); 
+        if(keys['KeyW']) move.z -= 1; 
+        if(keys['KeyS']) move.z += 1; 
+        if(keys['KeyA']) move.x -= 1; 
+        if(keys['KeyD']) move.x += 1; 
 
-    if (move.length() > 0) { 
-        move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion); 
-        if(!checkCollision({x: playerGroup.position.x + move.x, y: 1, z: playerGroup.position.z + move.z})) { 
-            playerGroup.position.x += move.x; playerGroup.position.z += move.z; 
-        } 
-    }
-    if (isFiring && fireTimer++ % 7 === 0) fireWeapon();
-    
-    if (move.length() > 0 || Math.abs(mouse.x) > 0.3 || isTouchDevice) {
-        socket.emit('playerMove', { x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z, yaw: yaw });
+        if (move.length() > 0) { 
+            move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion); 
+            if(!checkCollision({x: playerGroup.position.x + move.x, y: 1, z: playerGroup.position.z + move.z})) { 
+                playerGroup.position.x += move.x; playerGroup.position.z += move.z; 
+            } 
+        }
+        if (isFiring && fireTimer++ % 7 === 0) fireWeapon();
+        
+        if (move.length() > 0 || Math.abs(mouse.x) > 0.3 || isTouchDevice) {
+            socket.emit('playerMove', { x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z, yaw: yaw });
+        }
     }
 
-    if (isDragging) {
+    if (isDragging && !isPlayerDead) {
         let fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), sd = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
         if (keys['KeyW']) depthOffset += 0.4; if (keys['KeyS']) depthOffset -= 0.4; if (keys['KeyA']) horizOffset -= 0.4; if (keys['KeyD']) horizOffset += 0.4;
         let rawOff = new THREE.Vector3().addScaledVector(fwd, depthOffset * blockSize).addScaledVector(sd, horizOffset * blockSize);
@@ -1173,21 +1234,42 @@ function animate() {
 
         let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
         
-        // RELIABLE CRAFT HITBOX CHECK
-        if (b.userData.isPlayerBullet && aiGroup) {
-            let craftBox = new THREE.Box3().setFromCenterAndSize(aiGroup.position, new THREE.Vector3(4, 3, 6));
+        // --- CRAFT HIT & COMBAT RANGE ENFORCEMENT ---
+        if (b.userData.isPlayerBullet && aiGroup && !isEnemyDead) {
+            let craftBox = new THREE.Box3().setFromCenterAndSize(aiGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
             if (craftBox.containsPoint(b.position)) {
-                enemyHP -= 25; // 25 damage per hit
-                b.userData.life = 0;
-                if (enemyHP <= 0) {
-                    socket.emit('playerKilled', { 
-                        targetTeam: opponentTeam, 
-                        deathPos: { x: aiGroup.position.x, y: aiGroup.position.y, z: aiGroup.position.z }
-                    });
+                let distToTarget = playerGroup.position.distanceTo(aiGroup.position);
+
+                if (distToTarget > EFFECTIVE_COMBAT_RANGE) {
+                    // OUT OF RANGE: Deflect bullet with sparks & display visual tag
+                    triggerEnemyRangeWarning();
+                    let deflectAngle = new THREE.Vector3().subVectors(b.position, aiGroup.position).normalize();
+                    spawnRicochetSparks(b.position, deflectAngle);
+                    
+                    // Deflect bullet trajectory away
+                    b.userData.velocity.set(
+                        (Math.random() - 0.5) * 4,
+                        Math.random() * 5 + 3,
+                        (Math.random() - 0.5) * 4
+                    );
+                    b.userData.isPlayerBullet = false; // Cannot hit again
+                    b.userData.life = 15; // Quick dissipate
+                    continue;
+                } else {
+                    // IN RANGE: Inflict full armor damage
+                    enemyHP -= DAMAGE_PER_SHOT;
+                    b.userData.life = 0;
+                    if (enemyHP <= 0) {
+                        enemyHP = 0;
+                        socket.emit('playerKilled', { 
+                            targetTeam: opponentTeam, 
+                            deathPos: { x: aiGroup.position.x, y: aiGroup.position.y, z: aiGroup.position.z }
+                        });
+                    }
+                    scene.remove(b);
+                    bullets.splice(i, 1);
+                    continue;
                 }
-                scene.remove(b);
-                bullets.splice(i, 1);
-                continue;
             }
         }
 
