@@ -886,38 +886,119 @@ function createAlignedWallTexture(theme, isZWall) {
     return tex;
 }
 
+// ANTI-VERTIGO FLOOR TEXTURE WITH MACRO-LANDMARKS & BALANCED CONTRAST
 function createAlignedFloorTexture() {
-    const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 1000;
+    const canvas = document.createElement('canvas'); 
+    canvas.width = 2048; 
+    canvas.height = 2048;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#140003'; ctx.fillRect(0, 0, 1000, 1000);
-    for (let x = 2; x < 1000; x += blockSize) {
-        for (let z = 2; z < 1000; z += blockSize) {
-            let worldX = x - 500, worldZ = z - 500;
-            const isBlue = (x + z) >= 1000;
+    
+    const scale = 2048 / 1000; 
+    const bSize = blockSize * scale;
+
+    // 1. Soft base tiles
+    ctx.fillStyle = '#14080c'; 
+    ctx.fillRect(0, 0, 2048, 2048);
+
+    for (let x = 0; x < 2048; x += bSize) {
+        for (let z = 0; z < 2048; z += bSize) {
+            let worldX = (x / scale) - 500;
+            let worldZ = (z / scale) - 500;
+            const isBlue = (worldX + worldZ) >= 0;
             const baseZone = isInProtectedBase(worldX, worldZ);
-            ctx.fillStyle = baseZone === 'blue' ? '#030814' : baseZone === 'red' ? '#140205' : isBlue ? '#0a1a36' : '#33080e';
-            ctx.fillRect(x, z, blockSize, blockSize);
-            ctx.strokeStyle = isBlue ? '#000814' : '#140003'; ctx.strokeRect(x, z, blockSize, blockSize);
+            
+            ctx.fillStyle = (baseZone === 'blue') ? '#07152b' : 
+                            (baseZone === 'red') ? '#26060c' : 
+                            isBlue ? '#0d2242' : '#330e15';
+            ctx.fillRect(x, z, bSize, bSize);
+
+            // Subtle minor grid to eliminate high-frequency buzzing
+            ctx.strokeStyle = isBlue ? 'rgba(0, 100, 200, 0.18)' : 'rgba(200, 50, 60, 0.18)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, z, bSize, bSize);
         }
     }
-    const tex = new THREE.CanvasTexture(canvas); tex.wrapS = THREE.ClampToEdgeWrapping; tex.wrapT = THREE.ClampToEdgeWrapping;
+
+    // 2. High-level Macro Grid (Every 40 units) for scale orientation
+    const majorStep = 40 * scale;
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    for (let p = 0; p <= 2048; p += majorStep) {
+        ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, 2048); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(2048, p); ctx.stroke();
+    }
+
+    // 3. Central Dividing Axis Line & Neutral Corridor
+    ctx.save();
+    ctx.lineWidth = 18;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+    ctx.beginPath();
+    ctx.moveTo(2048, 0);
+    ctx.lineTo(0, 2048);
+    ctx.stroke();
+
+    // 4. Center Anchor Ring (at world 0,0)
+    ctx.translate(1024, 1024);
+    ctx.strokeStyle = 'rgba(0, 255, 136, 0.45)';
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.arc(0, 0, 180, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(0, 0, 240, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Center Crosshair
+    ctx.beginPath();
+    ctx.moveTo(-70, 0); ctx.lineTo(70, 0);
+    ctx.moveTo(0, -70); ctx.lineTo(0, 70);
+    ctx.stroke();
+    ctx.restore();
+
+    // 5. Giant Low-Opacity Tactical Sector Stencils for Instant Brain Orientation
+    ctx.save();
+    ctx.font = 'bold 110px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Sector Blue
+    ctx.fillStyle = 'rgba(0, 136, 255, 0.10)';
+    ctx.fillText('SECTOR BLUE [ALPHA]', 1450, 1450);
+
+    // Sector Red
+    ctx.fillStyle = 'rgba(255, 50, 50, 0.10)';
+    ctx.fillText('SECTOR RED [OMEGA]', 598, 598);
+
+    // Directional orientation chevrons
+    ctx.font = 'bold 70px monospace';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.fillText('<<< ARENA MIDFIELD >>>', 1024, 930);
+    ctx.fillText('<<< ARENA MIDFIELD >>>', 1024, 1120);
+
+    ctx.restore();
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.anisotropy = 4; 
     return tex;
 }
 
-// --- SNAIL EMBLEM TEXTURE FOR RECRUITMENT BASE CIRCLES ---
+// SNAIL EMBLEM TEXTURE FOR RECRUITMENT BASE CIRLCES
 function createSnailEmblemTexture(teamColorHex, accentColorHex, bgColorHex) {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
     const ctx = canvas.getContext('2d');
 
-    // Base background circle
     ctx.fillStyle = bgColorHex;
     ctx.beginPath();
     ctx.arc(256, 256, 256, 0, Math.PI * 2);
     ctx.fill();
 
-    // Outer tactical ring
     ctx.strokeStyle = teamColorHex;
     ctx.lineWidth = 16;
     ctx.beginPath();
@@ -927,48 +1008,31 @@ function createSnailEmblemTexture(teamColorHex, accentColorHex, bgColorHex) {
     ctx.save();
     ctx.translate(256, 265);
 
-    // Snail elongated foot / body
     ctx.fillStyle = teamColorHex;
     ctx.beginPath();
     ctx.ellipse(20, 65, 145, 38, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Snail Head
     ctx.beginPath();
     ctx.arc(130, 30, 42, 0, Math.PI * 2);
     ctx.fill();
 
-    // Eyestalks
     ctx.lineWidth = 8;
     ctx.strokeStyle = teamColorHex;
     ctx.lineCap = 'round';
 
-    // Left stalk
-    ctx.beginPath();
-    ctx.moveTo(140, 0);
-    ctx.lineTo(165, -45);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(140, 0); ctx.lineTo(165, -45); ctx.stroke();
     ctx.fillStyle = accentColorHex;
-    ctx.beginPath();
-    ctx.arc(165, -45, 10, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(165, -45, 10, 0, Math.PI * 2); ctx.fill();
 
-    // Right stalk
-    ctx.beginPath();
-    ctx.moveTo(120, 0);
-    ctx.lineTo(135, -52);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(135, -52, 10, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.moveTo(120, 0); ctx.lineTo(135, -52); ctx.stroke();
+    ctx.beginPath(); ctx.arc(135, -52, 10, 0, Math.PI * 2); ctx.fill();
 
-    // Shell Outer
     ctx.fillStyle = accentColorHex;
     ctx.beginPath();
     ctx.arc(-25, -5, 88, 0, Math.PI * 2);
     ctx.fill();
 
-    // Shell Spiral Rings
     ctx.strokeStyle = bgColorHex;
     ctx.lineWidth = 9;
     ctx.beginPath();
@@ -986,8 +1050,39 @@ function createSnailEmblemTexture(teamColorHex, accentColorHex, bgColorHex) {
     ctx.fill();
 
     ctx.restore();
-
     return new THREE.CanvasTexture(canvas);
+}
+
+// 3D MOTION PARALLAX REFERENCE PYLONS (LANDMARKS TO KILL VERTIGO)
+function createLandmarkPylon(x, z, colHex) {
+    const pylonGroup = new THREE.Group();
+    pylonGroup.position.set(x, 0, z);
+
+    // Base pedestal
+    const pedestal = new THREE.Mesh(
+        new THREE.CylinderGeometry(3.5, 4.5, 3, 8),
+        new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.9 })
+    );
+    pedestal.position.y = 1.5;
+    pylonGroup.add(pedestal);
+
+    // Glowing core spire
+    const spire = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.5, 1.2, 14, 8),
+        new THREE.MeshBasicMaterial({ color: colHex })
+    );
+    spire.position.y = 9;
+    pylonGroup.add(spire);
+
+    // Vertical holographic light beam for high-altitude horizon orientation
+    const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.15, 0.4, 180, 8),
+        new THREE.MeshBasicMaterial({ color: colHex, transparent: true, opacity: 0.25 })
+    );
+    beam.position.y = 90;
+    pylonGroup.add(beam);
+
+    scene.add(pylonGroup);
 }
 
 function createCube(pos, col, emCol, outCol = 0x334455) {
@@ -1092,10 +1187,15 @@ function initGameWorld() {
         scene.add(wl); wallMeshes.push(wl);
     });
 
-    // --- RECRUITMENT CIRCLES WITH FLAT SNAIL EMBLEMS ---
+    // 4 Midfield Spatial Anchors to prevent vertigo via motion parallax
+    createLandmarkPylon(-180, 180, 0x00ff88);
+    createLandmarkPylon(180, -180, 0x00ff88);
+    createLandmarkPylon(-280, 280, 0x0088ff);
+    createLandmarkPylon(280, -280, 0xff3333);
+
+    // Recruitment Pads with Snail Emblems
     const padGeo = new THREE.CylinderGeometry(8, 8, 0.4, 32);
 
-    // Blue Base Pad
     const blueSnailTex = createSnailEmblemTexture('#00aaff', '#55d4ff', '#021024');
     const bluePadSideMat = new THREE.MeshStandardMaterial({ color: 0x004488, roughness: 0.8 });
     const bluePadTopMat = new THREE.MeshStandardMaterial({ map: blueSnailTex, roughness: 0.6 });
@@ -1104,7 +1204,6 @@ function initGameWorld() {
     recruitmentPad.rotation.y = Math.PI / 4;
     scene.add(recruitmentPad);
 
-    // Red Base Pad
     const redSnailTex = createSnailEmblemTexture('#ff3333', '#ff8888', '#200407');
     const redPadSideMat = new THREE.MeshStandardMaterial({ color: 0x881111, roughness: 0.8 });
     const redPadTopMat = new THREE.MeshStandardMaterial({ map: redSnailTex, roughness: 0.6 });
@@ -1136,7 +1235,11 @@ function initGameWorld() {
     let pData = createShip(myColor);
     playerGroup = pData.group; turrets = pData.turrets;
     playerGroup.position.copy(playerSpawnPos); playerGroup.rotation.y = yaw; scene.add(playerGroup); 
-    playerGroup.add(camera); camera.position.set(0, 7, 15); camera.lookAt(0, 0, -20);
+    
+    // CALIBRATED ANTI-VERTIGO CAMERA: higher vantage, 62-degree natural FOV
+    playerGroup.add(camera); 
+    camera.position.set(0, 9.5, 17.5); 
+    camera.lookAt(0, 1.2, -18);
     
     let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
     let eData = createShip(enemyColor); 
@@ -1155,7 +1258,8 @@ function initGameWorld() {
 
 function init() {
     scene = new THREE.Scene(); scene.background = new THREE.Color(0xdce7f0); scene.fog = new THREE.FogExp2(0xdce7f0, 0.0012);
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1200);
+    // Adjusted FOV to 62 to eliminate peripheral fisheye vection
+    camera = new THREE.PerspectiveCamera(62, window.innerWidth/window.innerHeight, 0.1, 1200);
     renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight);
     document.getElementById('three-canvas').innerHTML = ""; document.getElementById('three-canvas').appendChild(renderer.domElement);
     initGameWorld();
@@ -1196,7 +1300,6 @@ function checkCollision(pos) {
     return false;
 }
 
-// FIXED: Prevents inverted projections of offscreen entities from floating in the sky
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
@@ -1216,7 +1319,7 @@ function updateOverheadUI() {
         document.getElementById('player-hp-bar').style.width = `${Math.max(0, (playerHP / MAX_HP) * 100)}%`;
     }
 
-    // 2. OPPONENT HUD
+    // 2. OPPONENT HUD (Fixed offscreen projection)
     const ew = new THREE.Vector3(); 
     aiGroup.getWorldPosition(ew); 
     const distToEnemy = playerGroup.position.distanceTo(ew);
@@ -1227,7 +1330,6 @@ function updateOverheadUI() {
 
     const inVisibilityRange = (distToEnemy <= 130);
 
-    // Guard with ew.z instead of wp.z to stop inverted sky floating
     if (ew.z > 1 || ew.z < -1 || Math.abs(ew.x) > 1.1 || Math.abs(ew.y) > 1.1 || isEnemyDead || !inVisibilityRange || !aiGroup.visible) {
         eUi.style.display = 'none';
     } else {
