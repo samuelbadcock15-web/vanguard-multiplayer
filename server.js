@@ -67,7 +67,6 @@ function removePlayerFromCurrentRoom(socket) {
 io.on('connection', (socket) => {
     console.log(`Player connected: ${socket.id}`);
 
-    // Send initial list of all rooms
     socket.emit('lobbies_update', getLobbiesSummary());
 
     socket.on('join_room', (roomId) => {
@@ -156,8 +155,13 @@ io.on('connection', (socket) => {
         if (socket.roomID) io.to(socket.roomID).emit('unitSpawned', data);
     });
 
-    socket.on('shipHit', (data) => {
-        if (socket.roomID) io.to(socket.roomID).emit('applyStun', { team: data.targetTeam });
+    socket.on('playerKilled', (data) => {
+        if (socket.roomID) {
+            io.to(socket.roomID).emit('shipRespawn', {
+                targetTeam: data.targetTeam,
+                deathPos: data.deathPos
+            });
+        }
     });
 
     socket.on('disconnect', () => {
