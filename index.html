@@ -70,7 +70,6 @@
             margin-top: 1px;
         }
 
-        /* --- LOBBY OVERLAY --- */
         #lobby-screen { 
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; 
             background: radial-gradient(circle at center, #131d2e 0%, #080c14 100%); 
@@ -129,43 +128,20 @@
         .restart-btn { background: #0088ff; color: #fff; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; font-family: monospace; border-radius: 4px; font-size: 12px; }
         .restart-btn:hover { background: #0055cc; }
 
-        /* --- MOBILE D-PAD --- */
         #mobile-dpad {
-            display: none;
-            position: fixed;
-            bottom: 30px;
-            left: 30px;
-            width: 150px;
-            height: 150px;
-            z-index: 900;
-            pointer-events: auto;
-            touch-action: none;
+            display: none; position: fixed; bottom: 30px; left: 30px;
+            width: 150px; height: 150px; z-index: 900; pointer-events: auto; touch-action: none;
         }
 
         .dpad-btn {
-            position: absolute;
-            width: 48px;
-            height: 48px;
-            background: rgba(0, 136, 255, 0.45);
-            border: 2px solid #0088ff;
-            border-radius: 8px;
-            color: #fff;
-            font-size: 20px;
-            font-weight: bold;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            user-select: none;
-            -webkit-user-select: none;
-            touch-action: none;
+            position: absolute; width: 48px; height: 48px;
+            background: rgba(0, 136, 255, 0.45); border: 2px solid #0088ff; border-radius: 8px;
+            color: #fff; font-size: 20px; font-weight: bold; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3); user-select: none; -webkit-user-select: none; touch-action: none;
         }
 
         .dpad-btn:active, .dpad-btn.active {
-            background: rgba(0, 255, 136, 0.7);
-            border-color: #00ff88;
-            color: #000;
-            transform: scale(0.92);
+            background: rgba(0, 255, 136, 0.7); border-color: #00ff88; color: #000; transform: scale(0.92);
         }
 
         #dpad-up { top: 0; left: 51px; }
@@ -182,7 +158,6 @@
 <body>
 <div id="cursor-ui"><div class="cursor-v"></div><div class="cursor-h"></div></div>
 
-<!-- MOBILE D-PAD -->
 <div id="mobile-dpad">
     <div class="dpad-btn" id="dpad-up">&#9650;</div>
     <div class="dpad-btn" id="dpad-left">&#9664;</div>
@@ -190,7 +165,6 @@
     <div class="dpad-btn" id="dpad-down">&#9660;</div>
 </div>
 
-<!-- LOBBY OVERLAY -->
 <div id="lobby-screen">
     <div class="lobby-header">
         <h1>VANGUARD COMBAT ARENA</h1>
@@ -199,7 +173,6 @@
     <div id="lobbies-grid"></div>
 </div>
 
-<!-- COUNTDOWN SCREEN -->
 <div id="countdown-screen">
     <div style="font-size: 18px; color: #ffaa00; font-weight: bold;" id="countdown-team-text">VESSEL ASSIGNED</div>
     <div id="countdown-number">3</div>
@@ -214,7 +187,6 @@
     </div>
 </div>
 
-<!-- OVERHEAD UI -->
 <div id="overhead-ui">
     <span id="player-badge-text" class="hud-vessel-title hud-blue">VESSEL</span>
     <div class="hp-bar-container"><div id="player-hp-bar" class="hp-fill"></div></div>
@@ -250,16 +222,20 @@ let myTeam = 'blue';
 let currentRoomId = null;
 let myReadyState = false;
 
+// THREE CLOCK FOR FRAME-INDEPENDENT DELTA TIME
+const clock = new THREE.Clock();
+let syncTimer = 0;
+
 let scene, camera, renderer, playerGroup, snakeHead, dirLight, floor, recruitmentPad, enemyPad;
 let userBlocks = [], aiBlocks = [], wallMeshes = [], bullets = [], turrets = [], keys = {};
 let isDragging = false, isFiring = false, fireTimer = 0;
 let startPoint = new THREE.Vector3(), dragStartMouse = new THREE.Vector2();
 let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 
-// --- 3 CUBES HIGH MAX CONSTRAINT ---
 const blockSize = 4;
 const maxWallGridHeight = 3 * blockSize; 
-const boatSpeed = 2.5, turnSpeed = 0.08;
+// Speed calibrated per second instead of per frame
+const boatSpeed = 75.0, turnSpeed = 2.4;
 
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
 let playerGold = 100;
@@ -270,7 +246,6 @@ let aiGroup, aiTurrets = [];
 let stalkers = [], runners = [], snails = [], sirenGeo;
 let debrisParticles = [];
 
-// Balanced HP & Range Settings
 const MAX_HP = 300;
 const DAMAGE_PER_SHOT = 10;
 const EFFECTIVE_COMBAT_RANGE = 140;
@@ -282,13 +257,11 @@ let isEnemyDead = false;
 let playerWarningTimeout = null;
 let enemyWarningTimeout = null;
 
-// Base spawn coordinates facing inward toward center (0,0,0)
 const BLUE_BASE = new THREE.Vector3(430, 0, 430);
 const BLUE_DEFAULT_YAW = 0.785;
 const RED_BASE = new THREE.Vector3(-430, 0, -430);
 const RED_DEFAULT_YAW = -2.356;
 
-// Mobile Detection & Touch Controls
 const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 if (isTouchDevice) {
     document.getElementById('mobile-dpad').style.display = 'block';
@@ -476,6 +449,7 @@ socket.on('start_match_countdown', (data) => {
         } else {
             clearInterval(timer);
             countdownScreen.style.display = 'none';
+            clock.start();
             gameActive = true;
         }
     }, 1000);
@@ -511,18 +485,36 @@ socket.on('blockPlaced', (data) => {
     }
 });
 
+// MULTIPLAYER UNIT SPAWN WITH SYNCHRONIZED IDs
 socket.on('unitSpawned', (data) => {
+    const isMine = (data.team === myTeam);
     if (data.type === 'snail') {
-        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(465, 0, 465));
-        else spawnRedSnail(new THREE.Vector3(-465, 0, -465));
+        if (data.team === 'blue') spawnYellowSnail(new THREE.Vector3(465, 0, 465), data.id, isMine);
+        else spawnRedSnail(new THREE.Vector3(-465, 0, -465), data.id, isMine);
     }
     if (data.type === 'runner') {
-        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(430, 0, 430));
-        else spawnRedRunner(new THREE.Vector3(-430, 0, -430));
+        if (data.team === 'blue') spawnYellowRunner(new THREE.Vector3(430, 0, 430), data.id, isMine);
+        else spawnRedRunner(new THREE.Vector3(-430, 0, -430), data.id, isMine);
     }
 });
 
-// --- CROSS-DEVICE HEALTH BAR SYNCHRONIZATION ---
+// AUTHORITATIVE POSITION SYNC FROM OPPONENT
+socket.on('unitSync', (data) => {
+    data.units.forEach(uData => {
+        let list = uData.type === 'runner' ? runners : snails;
+        let unit = list.find(u => u.id === uData.id);
+        if (unit && !unit.isAuthoritative) {
+            // Smoothly target authoritative position
+            unit.targetPos = new THREE.Vector3(uData.x, uData.y, uData.z);
+            unit.targetYaw = uData.yaw;
+        }
+    });
+});
+
+socket.on('matchEnded', (data) => {
+    triggerGameOver(data.title, data.desc);
+});
+
 socket.on('healthUpdate', (data) => {
     if (data.targetTeam === myTeam) {
         playerHP = data.newHP;
@@ -531,7 +523,6 @@ socket.on('healthUpdate', (data) => {
     }
 });
 
-// --- CROSS-DEVICE RICOCHET SYNCHRONIZATION ---
 socket.on('ricochetEvent', (data) => {
     const hitVec = new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z);
     const normVec = new THREE.Vector3(data.normal.x, data.normal.y, data.normal.z);
@@ -544,7 +535,6 @@ socket.on('ricochetEvent', (data) => {
     }
 });
 
-// ROBUST SHATTER DEBRIS SYSTEM
 function spawnShatterDebris(pos, colorHex) {
     for (let i = 0; i < 50; i++) {
         const p = new THREE.Mesh(
@@ -579,7 +569,6 @@ function spawnRicochetSparks(pos, normalDir) {
     }
 }
 
-// RELIABLE DESTRUCTION & BASE RESPAWN
 socket.on('shipRespawn', (data) => {
     const isTargetMe = (data.targetTeam === myTeam);
     const deathVec = new THREE.Vector3(data.deathPos.x, data.deathPos.y, data.deathPos.z);
@@ -661,7 +650,6 @@ function isInProtectedBase(x, z) {
     return null;
 }
 
-// 3 CUBES HIGH MAX CHECK
 function canBuildHere(pos, isPlayer) {
     if (pos.y > (maxWallGridHeight - (blockSize / 2) + 0.1)) return false; 
     if (isInProtectedBase(pos.x, pos.z)) return false;
@@ -673,7 +661,11 @@ function canBuildHere(pos, isPlayer) {
 }
 
 class CrimsonStalker {
-    constructor(cHex, sHex, isYBase=false, isRedRun=false, isYRun=false) {
+    constructor(cHex, sHex, isYBase=false, isRedRun=false, isYRun=false, id=null, isAuthoritative=true) {
+        this.id = id || `r_${Math.random()}`;
+        this.isAuthoritative = isAuthoritative;
+        this.targetPos = null;
+        this.targetYaw = null;
         this.group = new THREE.Group(); this.limbs = {}; this.health = { head: 100, torso: 100, lArm: 100, rArm: 100, lLeg: 100, rLeg: 100 };
         this.isAlive = true; this.isShattered = false; this.shatterParticles = []; this.shatterTimer = 0;
         this.shatterHex = sHex; this.isYellowBaseMan = isYBase; this.isRedRunner = isRedRun; this.isYellowRunner = isYRun;
@@ -709,12 +701,12 @@ class CrimsonStalker {
             scene.add(p); this.shatterParticles.push(p);
         }
     }
-    update(tPos) {
+    update(tPos, dt=0.016) {
         if (this.isShattered) {
-            this.shatterTimer++;
+            this.shatterTimer += dt * 60;
             this.shatterParticles.forEach(p => {
-                if (this.shatterTimer < 30) { p.position.add(p.userData.velocity); p.userData.velocity.y -= 0.15; } 
-                else { p.position.lerp(this.group.position, 0.1); p.scale.multiplyScalar(0.9); }
+                if (this.shatterTimer < 30) { p.position.addScaledVector(p.userData.velocity, dt * 60); p.userData.velocity.y -= 9.0 * dt; } 
+                else { p.position.lerp(this.group.position, 6.0 * dt); p.scale.multiplyScalar(Math.pow(0.9, dt * 60)); }
             });
             if (this.shatterTimer > 60) {
                 this.shatterParticles.forEach(p => scene.remove(p)); this.shatterParticles = [];
@@ -730,9 +722,14 @@ class CrimsonStalker {
 }
 
 class CrimsonSnail {
-    constructor(cHex, isYTeam=false) {
+    constructor(cHex, isYTeam=false, id=null, isAuthoritative=true) {
+        this.id = id || `sn_${Math.random()}`;
+        this.isAuthoritative = isAuthoritative;
+        this.targetPos = null;
+        this.targetYaw = null;
         this.group = new THREE.Group(); this.health = 120; this.isShattered = false; this.isYellowTeam = isYTeam;
-        this.moveSpeed = 0.5; this.currentWaypointIndex = 0; this.waypoints = [];
+        this.moveSpeed = 30.0; // Units per second
+        this.currentWaypointIndex = 0; this.waypoints = [];
         this.navState = 'SEEK'; this.wallFollowDir = Math.random() > 0.5 ? 1 : -1; this.followSteps = 0; this.startFollowPos = new THREE.Vector3(); this.currentHeading = new THREE.Vector3(0, 0, 1);
         
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
@@ -768,39 +765,42 @@ function tryRecruitPlayerSnail() {
     let n = Date.now(); if (n - lastRecruitTime < recruitCooldown) return;
     if (playerGold >= 2) { 
         playerGold -= 2; 
-        socket.emit('spawnUnit', { type: 'snail', team: myTeam });
+        const spawnId = `sn_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+        socket.emit('spawnUnit', { id: spawnId, type: 'snail', team: myTeam });
         lastRecruitTime = n; 
     }
 }
 
-function spawnYellowSnail(pos) { 
+function spawnYellowSnail(pos, id, isMine) { 
     playerSnailsSpawned++; 
-    let sn = new CrimsonSnail(0x0077ff, true); 
+    let sn = new CrimsonSnail(0x0077ff, true, id, isMine); 
     sn.group.position.copy(pos); 
     sn.waypoints = [new THREE.Vector3(-465, 0, -465)]; 
     snails.push(sn); 
 }
 
-function spawnRedSnail(pos) { 
+function spawnRedSnail(pos, id, isMine) { 
     aiSnailsSpawned++; 
-    let sn = new CrimsonSnail(0xcc2222, false); 
+    let sn = new CrimsonSnail(0xcc2222, false, id, isMine); 
     sn.group.position.copy(pos); 
     sn.waypoints = [new THREE.Vector3(465, 0, 465)]; 
     snails.push(sn); 
 }
 
-function spawnYellowRunner(pos) { 
-    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true); 
+function spawnYellowRunner(pos, id, isMine) { 
+    let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true, id, isMine); 
     r.group.position.copy(pos); 
     r.waypoints = [new THREE.Vector3(490, 0, 490), new THREE.Vector3(490, 0, -490), new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-465, 0, -465)]; 
-    r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
+    r.currentWaypointIndex = 0; r.moveSpeed = 72.0; // Units per second
+    runners.push(r); 
 }
 
-function spawnRedRunner(pos) { 
-    let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false); 
+function spawnRedRunner(pos, id, isMine) { 
+    let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false, id, isMine); 
     r.group.position.copy(pos); 
     r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, 490), new THREE.Vector3(490, 0, 490), new THREE.Vector3(465, 0, 465)]; 
-    r.currentWaypointIndex = 0; r.moveSpeed = 1.2; runners.push(r); 
+    r.currentWaypointIndex = 0; r.moveSpeed = 72.0; // Units per second
+    runners.push(r); 
 }
 
 function checkObstacleAt(pos, size) {
@@ -812,10 +812,10 @@ function checkObstacleAt(pos, size) {
     return false;
 }
 
-function executeBugNavigation(entity, currentPos, targetPos, sizeVec, speed) {
+function executeBugNavigation(entity, currentPos, targetPos, sizeVec, speed, dt) {
     let toTarget = new THREE.Vector3().subVectors(targetPos, currentPos); toTarget.y = 0;
     let directDir = toTarget.clone().normalize();
-    let directStep = currentPos.clone().addScaledVector(directDir, speed * 2.2);
+    let directStep = currentPos.clone().addScaledVector(directDir, Math.max(speed * dt * 2.2, 1.5));
     let directClear = !checkObstacleAt(directStep, sizeVec);
 
     if (entity.navState === 'TRAPPED') {
@@ -827,19 +827,19 @@ function executeBugNavigation(entity, currentPos, targetPos, sizeVec, speed) {
         else {
             entity.navState = 'WALL_FOLLOW'; entity.followSteps = 0; entity.startFollowPos.copy(currentPos);
             let rightDir = directDir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
-            let rightClear = !checkObstacleAt(currentPos.clone().addScaledVector(rightDir, speed * 2.0), sizeVec);
+            let rightClear = !checkObstacleAt(currentPos.clone().addScaledVector(rightDir, Math.max(speed * dt * 2.0, 1.5)), sizeVec);
             entity.wallFollowDir = rightClear ? -1 : 1;
             entity.currentHeading.copy(directDir).applyAxisAngle(new THREE.Vector3(0, 1, 0), (Math.PI / 2) * entity.wallFollowDir);
         }
     }
     if (entity.navState === 'WALL_FOLLOW') {
-        entity.followSteps++;
+        entity.followSteps += dt * 60;
         if (entity.followSteps > 60 && currentPos.distanceTo(entity.startFollowPos) < 12) { entity.navState = 'TRAPPED'; return null; }
         if (directClear && entity.followSteps > 15) { entity.navState = 'SEEK'; entity.followSteps = 0; return directDir; }
         let moveHeading = null;
         for (let a of [-Math.PI/3 * entity.wallFollowDir, 0, Math.PI/2 * entity.wallFollowDir]) {
             let probeDir = entity.currentHeading.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
-            if (!checkObstacleAt(currentPos.clone().addScaledVector(probeDir, speed * 2.0), sizeVec)) { moveHeading = probeDir; break; }
+            if (!checkObstacleAt(currentPos.clone().addScaledVector(probeDir, Math.max(speed * dt * 2.0, 1.5)), sizeVec)) { moveHeading = probeDir; break; }
         }
         if (moveHeading) { entity.currentHeading.copy(moveHeading); return moveHeading; }
         else { entity.wallFollowDir *= -1; return null; }
@@ -886,7 +886,6 @@ function createAlignedWallTexture(theme, isZWall) {
     return tex;
 }
 
-// ANTI-VERTIGO FLOOR TEXTURE WITH MACRO-LANDMARKS & BALANCED CONTRAST
 function createAlignedFloorTexture() {
     const canvas = document.createElement('canvas'); 
     canvas.width = 2048; 
@@ -896,7 +895,6 @@ function createAlignedFloorTexture() {
     const scale = 2048 / 1000; 
     const bSize = blockSize * scale;
 
-    // 1. Soft base tiles
     ctx.fillStyle = '#14080c'; 
     ctx.fillRect(0, 0, 2048, 2048);
 
@@ -912,14 +910,12 @@ function createAlignedFloorTexture() {
                             isBlue ? '#0d2242' : '#330e15';
             ctx.fillRect(x, z, bSize, bSize);
 
-            // Subtle minor grid to eliminate high-frequency buzzing
             ctx.strokeStyle = isBlue ? 'rgba(0, 100, 200, 0.18)' : 'rgba(200, 50, 60, 0.18)';
             ctx.lineWidth = 1;
             ctx.strokeRect(x, z, bSize, bSize);
         }
     }
 
-    // 2. High-level Macro Grid (Every 40 units) for scale orientation
     const majorStep = 40 * scale;
     ctx.lineWidth = 2.5;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
@@ -928,7 +924,6 @@ function createAlignedFloorTexture() {
         ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(2048, p); ctx.stroke();
     }
 
-    // 3. Central Dividing Axis Line & Neutral Corridor
     ctx.save();
     ctx.lineWidth = 18;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
@@ -937,7 +932,6 @@ function createAlignedFloorTexture() {
     ctx.lineTo(0, 2048);
     ctx.stroke();
 
-    // 4. Center Anchor Ring (at world 0,0)
     ctx.translate(1024, 1024);
     ctx.strokeStyle = 'rgba(0, 255, 136, 0.45)';
     ctx.lineWidth = 14;
@@ -951,28 +945,23 @@ function createAlignedFloorTexture() {
     ctx.arc(0, 0, 240, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Center Crosshair
     ctx.beginPath();
     ctx.moveTo(-70, 0); ctx.lineTo(70, 0);
     ctx.moveTo(0, -70); ctx.lineTo(0, 70);
     ctx.stroke();
     ctx.restore();
 
-    // 5. Giant Low-Opacity Tactical Sector Stencils for Instant Brain Orientation
     ctx.save();
     ctx.font = 'bold 110px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // Sector Blue
     ctx.fillStyle = 'rgba(0, 136, 255, 0.10)';
     ctx.fillText('SECTOR BLUE [ALPHA]', 1450, 1450);
 
-    // Sector Red
     ctx.fillStyle = 'rgba(255, 50, 50, 0.10)';
     ctx.fillText('SECTOR RED [OMEGA]', 598, 598);
 
-    // Directional orientation chevrons
     ctx.font = 'bold 70px monospace';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
     ctx.fillText('<<< ARENA MIDFIELD >>>', 1024, 930);
@@ -987,7 +976,6 @@ function createAlignedFloorTexture() {
     return tex;
 }
 
-// SNAIL EMBLEM TEXTURE FOR RECRUITMENT BASE CIRLCES
 function createSnailEmblemTexture(teamColorHex, accentColorHex, bgColorHex) {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
@@ -1053,12 +1041,10 @@ function createSnailEmblemTexture(teamColorHex, accentColorHex, bgColorHex) {
     return new THREE.CanvasTexture(canvas);
 }
 
-// 3D MOTION PARALLAX REFERENCE PYLONS (LANDMARKS TO KILL VERTIGO)
 function createLandmarkPylon(x, z, colHex) {
     const pylonGroup = new THREE.Group();
     pylonGroup.position.set(x, 0, z);
 
-    // Base pedestal
     const pedestal = new THREE.Mesh(
         new THREE.CylinderGeometry(3.5, 4.5, 3, 8),
         new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.9 })
@@ -1066,7 +1052,6 @@ function createLandmarkPylon(x, z, colHex) {
     pedestal.position.y = 1.5;
     pylonGroup.add(pedestal);
 
-    // Glowing core spire
     const spire = new THREE.Mesh(
         new THREE.CylinderGeometry(0.5, 1.2, 14, 8),
         new THREE.MeshBasicMaterial({ color: colHex })
@@ -1074,7 +1059,6 @@ function createLandmarkPylon(x, z, colHex) {
     spire.position.y = 9;
     pylonGroup.add(spire);
 
-    // Vertical holographic light beam for high-altitude horizon orientation
     const beam = new THREE.Mesh(
         new THREE.CylinderGeometry(0.15, 0.4, 180, 8),
         new THREE.MeshBasicMaterial({ color: colHex, transparent: true, opacity: 0.25 })
@@ -1156,8 +1140,8 @@ function fireWeapon() {
         snails.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         const hits = raycaster.intersectObjects(pool, true); if (hits.length > 0) { hits.sort((a, b) => a.distance - b.distance); tar.copy(hits[0].point); } else { raycaster.ray.at(200, tar); }
         b.lookAt(tar); 
-        let vel = tar.sub(wp).normalize().multiplyScalar(6);
-        b.userData.velocity = vel; b.userData.life = 120; b.userData.isPlayerBullet = true; scene.add(b); bullets.push(b);
+        let vel = tar.sub(wp).normalize().multiplyScalar(360.0); // 360 units/sec
+        b.userData.velocity = vel; b.userData.life = 2.0; b.userData.isPlayerBullet = true; scene.add(b); bullets.push(b);
         socket.emit('playerFire', { x: wp.x, y: wp.y, z: wp.z, vx: vel.x, vy: vel.y, vz: vel.z });
     });
 }
@@ -1187,13 +1171,11 @@ function initGameWorld() {
         scene.add(wl); wallMeshes.push(wl);
     });
 
-    // 4 Midfield Spatial Anchors to prevent vertigo via motion parallax
     createLandmarkPylon(-180, 180, 0x00ff88);
     createLandmarkPylon(180, -180, 0x00ff88);
     createLandmarkPylon(-280, 280, 0x0088ff);
     createLandmarkPylon(280, -280, 0xff3333);
 
-    // Recruitment Pads with Snail Emblems
     const padGeo = new THREE.CylinderGeometry(8, 8, 0.4, 32);
 
     const blueSnailTex = createSnailEmblemTexture('#00aaff', '#55d4ff', '#021024');
@@ -1236,7 +1218,6 @@ function initGameWorld() {
     playerGroup = pData.group; turrets = pData.turrets;
     playerGroup.position.copy(playerSpawnPos); playerGroup.rotation.y = yaw; scene.add(playerGroup); 
     
-    // CALIBRATED ANTI-VERTIGO CAMERA: higher vantage, 62-degree natural FOV
     playerGroup.add(camera); 
     camera.position.set(0, 9.5, 17.5); 
     camera.lookAt(0, 1.2, -18);
@@ -1258,7 +1239,6 @@ function initGameWorld() {
 
 function init() {
     scene = new THREE.Scene(); scene.background = new THREE.Color(0xdce7f0); scene.fog = new THREE.FogExp2(0xdce7f0, 0.0012);
-    // Adjusted FOV to 62 to eliminate peripheral fisheye vection
     camera = new THREE.PerspectiveCamera(62, window.innerWidth/window.innerHeight, 0.1, 1200);
     renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight);
     document.getElementById('three-canvas').innerHTML = ""; document.getElementById('three-canvas').appendChild(renderer.domElement);
@@ -1303,7 +1283,6 @@ function checkCollision(pos) {
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
-    // 1. LOCAL PLAYER HUD
     const wp = new THREE.Vector3(); 
     playerGroup.getWorldPosition(wp); 
     wp.y += 2.2; 
@@ -1319,7 +1298,6 @@ function updateOverheadUI() {
         document.getElementById('player-hp-bar').style.width = `${Math.max(0, (playerHP / MAX_HP) * 100)}%`;
     }
 
-    // 2. OPPONENT HUD (Fixed offscreen projection)
     const ew = new THREE.Vector3(); 
     aiGroup.getWorldPosition(ew); 
     const distToEnemy = playerGroup.position.distanceTo(ew);
@@ -1370,20 +1348,25 @@ function updateCounters() {
 }
 
 function animate() {
-    requestAnimationFrame(animate); if (!renderer || !scene || !camera || !gameActive) return; 
-    
+    requestAnimationFrame(animate); 
+    if (!renderer || !scene || !camera || !gameActive) return; 
+
+    // CALCULATE ACCURATE FRAME-INDEPENDENT DELTA TIME (CAP AT 0.1s FOR LAG SPIKES)
+    const dt = Math.min(clock.getDelta(), 0.1);
+
     document.getElementById('player-gold').innerText = playerGold;
     
     updateOverheadUI();
     updateCounters();
 
+    // 1. PARTICLES (DELTA-TIME WEIGHTED)
     for (let i = debrisParticles.length - 1; i >= 0; i--) {
         const p = debrisParticles[i];
-        p.position.add(p.userData.velocity);
-        p.userData.velocity.y -= 0.14;
-        p.userData.life--;
+        p.position.addScaledVector(p.userData.velocity, dt * 60);
+        p.userData.velocity.y -= 8.4 * dt;
+        p.userData.life -= dt * 60;
         if (p.userData.life <= 30) {
-            p.scale.multiplyScalar(0.94);
+            p.scale.multiplyScalar(Math.pow(0.94, dt * 60));
         }
         if (p.userData.life <= 0) {
             scene.remove(p);
@@ -1391,22 +1374,24 @@ function animate() {
         }
     }
     
-    stalkers.forEach(s => s.update(playerGroup.position));
+    stalkers.forEach(s => s.update(playerGroup.position, dt));
 
+    // 2. RUNNERS SIMULATION & SYNC
     for (let i = runners.length - 1; i >= 0; i--) {
         let r = runners[i];
         if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
         
         let targetBasePos = r.isYellowRunner ? new THREE.Vector3(-465, 0, -465) : new THREE.Vector3(465, 0, 465);
         let reachedEnemyBase = r.group.position.distanceTo(targetBasePos) < 14;
-        if (reachedEnemyBase) {
+
+        // Authoritative base breach trigger
+        if (reachedEnemyBase && r.isAuthoritative) {
             let targetBaseTeam = r.isYellowRunner ? 'red' : 'blue';
             r.explode();
-            if (targetBaseTeam === 'red') {
-                triggerGameOver("BLUE TEAM WINS!", "YOUR RUNNER BREACHED THE ENEMY BASE!");
-            } else {
-                triggerGameOver("RED TEAM WINS!", "ENEMY RUNNER BREACHED YOUR BASE!");
-            }
+            socket.emit('matchEnded', {
+                title: targetBaseTeam === 'red' ? "BLUE TEAM WINS!" : "RED TEAM WINS!",
+                desc: targetBaseTeam === 'red' ? "YOUR RUNNER BREACHED THE ENEMY BASE!" : "ENEMY RUNNER BREACHED YOUR BASE!"
+            });
             continue;
         }
 
@@ -1416,46 +1401,58 @@ function animate() {
         }
 
         if (!r.isShattered) {
-            let tar = r.waypoints[r.currentWaypointIndex];
-            const runnerSize = new THREE.Vector3(2.2, 4, 2.2);
-            let steerDir = executeBugNavigation(r, r.group.position, tar, runnerSize, r.moveSpeed);
-            
-            if (steerDir) {
-                r.group.position.addScaledVector(steerDir, r.moveSpeed);
-                let lookTarget = r.group.position.clone().add(steerDir);
-                r.group.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
+            if (r.isAuthoritative) {
+                let tar = r.waypoints[r.currentWaypointIndex];
+                const runnerSize = new THREE.Vector3(2.2, 4, 2.2);
+                let steerDir = executeBugNavigation(r, r.group.position, tar, runnerSize, r.moveSpeed, dt);
                 
-                let t = Date.now() * 0.015;
-                if (r.limbs['lArm']) r.limbs['lArm'].rotation.x = Math.sin(t) * 0.6;
-                if (r.limbs['rArm']) r.limbs['rArm'].rotation.x = -Math.sin(t) * 0.6;
-                if (r.limbs['lLeg']) r.limbs['lLeg'].rotation.x = -Math.sin(t) * 0.6;
-                if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = Math.sin(t) * 0.6;
-            }
-            
-            if (r.group.position.distanceTo(tar) < 16) {
-                r.currentWaypointIndex++;
-                r.navState = 'SEEK'; r.followSteps = 0;
-                if (r.currentWaypointIndex >= r.waypoints.length) {
-                    r.waypoints.push(targetBasePos);
+                if (steerDir) {
+                    r.group.position.addScaledVector(steerDir, r.moveSpeed * dt);
+                    let lookTarget = r.group.position.clone().add(steerDir);
+                    r.group.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
+                }
+                
+                if (r.group.position.distanceTo(tar) < 16) {
+                    r.currentWaypointIndex++;
+                    r.navState = 'SEEK'; r.followSteps = 0;
+                    if (r.currentWaypointIndex >= r.waypoints.length) {
+                        r.waypoints.push(targetBasePos);
+                    }
+                }
+            } else if (r.targetPos) {
+                // Non-authoritative: smooth interpolation toward opponent's true coordinates
+                r.group.position.lerp(r.targetPos, Math.min(dt * 15, 1.0));
+                if (r.targetYaw !== null) {
+                    r.group.rotation.y = THREE.MathUtils.lerp(r.group.rotation.y, r.targetYaw, Math.min(dt * 15, 1.0));
                 }
             }
-        } else { r.update(playerGroup.position); }
+
+            // Limb Animation
+            let t = Date.now() * 0.015;
+            if (r.limbs['lArm']) r.limbs['lArm'].rotation.x = Math.sin(t) * 0.6;
+            if (r.limbs['rArm']) r.limbs['rArm'].rotation.x = -Math.sin(t) * 0.6;
+            if (r.limbs['lLeg']) r.limbs['lLeg'].rotation.x = -Math.sin(t) * 0.6;
+            if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = Math.sin(t) * 0.6;
+        } else { 
+            r.update(playerGroup.position, dt); 
+        }
     }
 
+    // 3. SNAILS SIMULATION & SYNC
     for (let i = snails.length - 1; i >= 0; i--) {
         let sn = snails[i]; 
         if (sn.markedForRemoval) { scene.remove(sn.group); snails.splice(i, 1); continue; }
         
         let targetBasePos = sn.isYellowTeam ? new THREE.Vector3(-465, 0, -465) : new THREE.Vector3(465, 0, 465);
         let reachedEnemyBase = sn.group.position.distanceTo(targetBasePos) < 14;
-        if (reachedEnemyBase) {
+
+        if (reachedEnemyBase && sn.isAuthoritative) {
             let targetBaseTeam = sn.isYellowTeam ? 'red' : 'blue';
             sn.explode();
-            if (targetBaseTeam === 'red') {
-                triggerGameOver("BLUE TEAM WINS!", "YOUR SNAIL BREACHED THE ENEMY BASE!");
-            } else {
-                triggerGameOver("RED TEAM WINS!", "ENEMY SNAIL BREACHED YOUR BASE!");
-            }
+            socket.emit('matchEnded', {
+                title: targetBaseTeam === 'red' ? "BLUE TEAM WINS!" : "RED TEAM WINS!",
+                desc: targetBaseTeam === 'red' ? "YOUR SNAIL BREACHED THE ENEMY BASE!" : "ENEMY SNAIL BREACHED YOUR BASE!"
+            });
             continue;
         }
 
@@ -1465,32 +1462,53 @@ function animate() {
         }
 
         if (!sn.isShattered) {
-            let tar = sn.waypoints[sn.currentWaypointIndex];
-            if (!tar) continue;
-            
-            const snailSize = new THREE.Vector3(3.2, 3, 4.8);
-            let steerDir = executeBugNavigation(sn, sn.group.position, tar, snailSize, sn.moveSpeed);
-            
-            if (steerDir) {
-                sn.group.position.addScaledVector(steerDir, sn.moveSpeed);
-                let lookTarget = sn.group.position.clone().add(steerDir);
-                sn.group.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
-            }
-            
-            if (sn.group.position.distanceTo(tar) < 16) {
-                sn.currentWaypointIndex++;
-                sn.navState = 'SEEK'; 
-                if (sn.currentWaypointIndex >= sn.waypoints.length) {
-                    sn.waypoints.push(targetBasePos);
+            if (sn.isAuthoritative) {
+                let tar = sn.waypoints[sn.currentWaypointIndex];
+                if (!tar) continue;
+                
+                const snailSize = new THREE.Vector3(3.2, 3, 4.8);
+                let steerDir = executeBugNavigation(sn, sn.group.position, tar, snailSize, sn.moveSpeed, dt);
+                
+                if (steerDir) {
+                    sn.group.position.addScaledVector(steerDir, sn.moveSpeed * dt);
+                    let lookTarget = sn.group.position.clone().add(steerDir);
+                    sn.group.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
+                }
+                
+                if (sn.group.position.distanceTo(tar) < 16) {
+                    sn.currentWaypointIndex++;
+                    sn.navState = 'SEEK'; 
+                    if (sn.currentWaypointIndex >= sn.waypoints.length) {
+                        sn.waypoints.push(targetBasePos);
+                    }
+                }
+            } else if (sn.targetPos) {
+                sn.group.position.lerp(sn.targetPos, Math.min(dt * 15, 1.0));
+                if (sn.targetYaw !== null) {
+                    sn.group.rotation.y = THREE.MathUtils.lerp(sn.group.rotation.y, sn.targetYaw, Math.min(dt * 15, 1.0));
                 }
             }
         }
     }
 
+    // 4. AUTHORITATIVE NETWORK SYNC DISPATCH (10 times per second)
+    syncTimer += dt;
+    if (syncTimer >= 0.1) {
+        syncTimer = 0;
+        const myAuthoritativeUnits = [
+            ...runners.filter(r => r.isAuthoritative && !r.isShattered).map(r => ({ id: r.id, type: 'runner', x: r.group.position.x, y: r.group.position.y, z: r.group.position.z, yaw: r.group.rotation.y })),
+            ...snails.filter(sn => sn.isAuthoritative && !sn.isShattered).map(sn => ({ id: sn.id, type: 'snail', x: sn.group.position.x, y: sn.group.position.y, z: sn.group.position.z, yaw: sn.group.rotation.y }))
+        ];
+        if (myAuthoritativeUnits.length > 0) {
+            socket.emit('unitSync', { units: myAuthoritativeUnits });
+        }
+    }
+
+    // 5. PLAYER VESSEL CONTROLS
     if (!isPlayerDead) {
         if (!isTouchDevice) {
-            if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); 
-            if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); 
+            if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3) * dt; 
+            if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3) * dt; 
         }
         playerGroup.rotation.y = yaw;
 
@@ -1501,7 +1519,7 @@ function animate() {
         if(keys['KeyD']) move.x += 1; 
 
         if (move.length() > 0) { 
-            move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion); 
+            move.normalize().multiplyScalar(boatSpeed * dt).applyQuaternion(playerGroup.quaternion); 
             if(!checkCollision({x: playerGroup.position.x + move.x, y: 1, z: playerGroup.position.z + move.z})) { 
                 playerGroup.position.x += move.x; playerGroup.position.z += move.z; 
             } 
@@ -1513,7 +1531,7 @@ function animate() {
         }
     }
 
-    // --- ENFORCE STRICT 3 CUBES HIGH MAX ON RMB DRAG ---
+    // 6. BUILD SYSTEM
     if (isDragging && !isPlayerDead) {
         let fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), sd = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
         if (keys['KeyW']) depthOffset += 0.4; if (keys['KeyS']) depthOffset -= 0.4; if (keys['KeyA']) horizOffset -= 0.4; if (keys['KeyD']) horizOffset += 0.4;
@@ -1554,8 +1572,11 @@ function animate() {
         }
     }
 
+    // 7. BULLET PHYSICS (DELTA-TIME WEIGHTED)
     for(let i = bullets.length - 1; i >= 0; i--) {
-        const b = bullets[i]; b.position.add(b.userData.velocity); b.userData.life--;
+        const b = bullets[i]; 
+        b.position.addScaledVector(b.userData.velocity, dt); 
+        b.userData.life -= dt;
         if (b.userData.life <= 0) { scene.remove(b); bullets.splice(i, 1); continue; }
 
         let enemyBaseX = (myTeam === 'blue') ? -400 : 400;
@@ -1568,7 +1589,7 @@ function animate() {
 
         let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
 
-        // 1. LOCAL BULLETS CHECK ENEMY CRAFT
+        // Local bullet hit detection on enemy craft
         if (b.userData.isPlayerBullet && aiGroup && !isEnemyDead) {
             let enemyBox = new THREE.Box3().setFromCenterAndSize(aiGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
             if (enemyBox.containsPoint(b.position)) {
@@ -1583,12 +1604,12 @@ function animate() {
                     });
 
                     b.userData.velocity.set(
-                        (Math.random() - 0.5) * 4,
-                        Math.random() * 5 + 3,
-                        (Math.random() - 0.5) * 4
+                        (Math.random() - 0.5) * 240,
+                        Math.random() * 300 + 180,
+                        (Math.random() - 0.5) * 240
                     );
                     b.userData.isPlayerBullet = false;
-                    b.userData.life = 15;
+                    b.userData.life = 0.25;
                     continue;
                 } else {
                     let updatedEnemyHP = Math.max(0, enemyHP - DAMAGE_PER_SHOT);
@@ -1613,7 +1634,7 @@ function animate() {
             }
         }
 
-        // 2. REMOTE BULLETS CHECK LOCAL PLAYER CRAFT
+        // Remote bullet hit detection on local vessel
         if (!b.userData.isPlayerBullet && playerGroup && !isPlayerDead) {
             let myBox = new THREE.Box3().setFromCenterAndSize(playerGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
             if (myBox.containsPoint(b.position)) {
@@ -1624,11 +1645,11 @@ function animate() {
                     spawnRicochetSparks(b.position, deflectAngle);
                     triggerPlayerRangeWarning();
                     b.userData.velocity.set(
-                        (Math.random() - 0.5) * 4,
-                        Math.random() * 5 + 3,
-                        (Math.random() - 0.5) * 4
+                        (Math.random() - 0.5) * 240,
+                        Math.random() * 300 + 180,
+                        (Math.random() - 0.5) * 240
                     );
-                    b.userData.life = 15;
+                    b.userData.life = 0.25;
                     continue;
                 } else {
                     scene.remove(b);
@@ -1638,13 +1659,12 @@ function animate() {
             }
         }
 
-        // Pad / Base Man / Wall raycasting
         let pool = [recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
         stalkers.forEach(s => { if(!s.isShattered) pool.push(s.group); });
         runners.forEach(s => { if(!s.isShattered) pool.push(s.group); });
         snails.forEach(s => { if(!s.isShattered) pool.push(s.group); });
 
-        const bHit = (new THREE.Raycaster(b.position, b.userData.velocity.clone().normalize(), 0, 6)).intersectObjects(pool, true);
+        const bHit = (new THREE.Raycaster(b.position, b.userData.velocity.clone().normalize(), 0, 8)).intersectObjects(pool, true);
         if(bHit.length > 0) {
             let hObj = bHit[0].object, isPad = false, cPad = hObj; 
             while(cPad && cPad !== scene) { if(cPad === recruitmentPad || cPad === enemyPad) { isPad = true; break; } cPad = cPad.parent; }
@@ -1657,7 +1677,8 @@ function animate() {
                         let hitMyBaseMan = (myTeam === 'blue' && ent === stalkers[1]) || (myTeam === 'red' && ent === stalkers[0]);
                         if (hitMyBaseMan && playerGold >= 1) {
                             playerGold -= 1;
-                            socket.emit('spawnUnit', { type: 'runner', team: myTeam });
+                            const runnerId = `r_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+                            socket.emit('spawnUnit', { id: runnerId, type: 'runner', team: myTeam });
                         } else if (!ent.isYellowBaseMan && !ent.isBlueBaseMan) {
                             ent.takeDamage(hObj.userData.partName || 'torso', 50, true);
                         }
