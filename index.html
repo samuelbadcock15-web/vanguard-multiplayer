@@ -24,10 +24,11 @@
         
         #overhead-ui, #opponent-overhead-ui { position: fixed; pointer-events: none; z-index: 50; display: flex; flex-direction: column; gap: 3px; align-items: center; transform: translate(-50%, -100%); }
         
-        .status-badge { position: relative; background: #0088ff; color: #fff; padding: 4px 8px; font-size: 9px; font-weight: bold; border-radius: 2px; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,0,0,0.5); overflow: hidden; min-width: 110px; text-align: center; }
-        .status-badge-ai { background: #cc2222; color: #fff; padding: 4px 8px; font-size: 9px; font-weight: bold; border-radius: 2px; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,0,0,0.5); min-width: 110px; text-align: center; }
+        .status-badge { position: relative; background: #0088ff; color: #fff; padding: 4px 8px; font-size: 9px; font-weight: bold; border-radius: 2px; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,0,0,0.5); overflow: hidden; min-width: 120px; text-align: center; }
+        .status-badge-ai { background: #cc2222; color: #fff; padding: 4px 8px; font-size: 9px; font-weight: bold; border-radius: 2px; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,0,0,0.5); min-width: 120px; text-align: center; }
 
-        .stun-timer-bar { position: absolute; bottom: 0; left: 0; height: 3px; background: #ffff00; width: 100%; transition: width 0.05s linear; }
+        .hp-bar-container { width: 100%; height: 4px; background: rgba(0,0,0,0.6); margin-top: 3px; border-radius: 2px; overflow: hidden; }
+        .hp-fill { height: 100%; width: 100%; background: #00ff88; transition: width 0.1s ease; }
 
         /* --- 6-ROOM LOBBY OVERLAY --- */
         #lobby-screen { 
@@ -88,7 +89,7 @@
         .restart-btn { background: #0088ff; color: #fff; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; font-family: monospace; border-radius: 4px; font-size: 12px; }
         .restart-btn:hover { background: #0055cc; }
 
-        /* --- MOBILE D-PAD (HIDDEN ON DESKTOP) --- */
+        /* --- MOBILE D-PAD --- */
         #mobile-dpad {
             display: none;
             position: fixed;
@@ -175,15 +176,15 @@
 
 <div id="overhead-ui">
     <div id="player-status-badge" class="status-badge">
-        <span id="player-badge-text">VESSEL: ACTIVE</span>
-        <div id="player-stun-bar" class="stun-timer-bar" style="width: 0%;"></div>
+        <span id="player-badge-text">VESSEL: 100 HP</span>
+        <div class="hp-bar-container"><div id="player-hp-bar" class="hp-fill"></div></div>
     </div>
 </div>
 
 <div id="opponent-overhead-ui">
     <div id="opponent-status-badge" class="status-badge-ai">
-        <span id="opponent-badge-text">ENEMY: ACTIVE</span>
-        <div id="opponent-stun-bar" class="stun-timer-bar" style="width: 0%;"></div>
+        <span id="opponent-badge-text">ENEMY: 100 HP</span>
+        <div class="hp-bar-container"><div id="enemy-hp-bar" class="hp-fill"></div></div>
     </div>
 </div>
 
@@ -218,15 +219,25 @@ let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 const blockSize = 4, boatSpeed = 2.5, turnSpeed = 0.08;
 const maxWallGridHeight = 8 * blockSize;
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
-let playerFrozenUntil = 0, enemyFrozenUntil = 0, playerGold = 100;
-const stunDuration = 3000;
+let playerGold = 100;
 let gameActive = false, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
 let playerSpawnPos = new THREE.Vector3(430, 0, 430);
-let aiGroup, aiSirenL, aiSirenR, aiPointLight, aiTurrets = [];
-let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
+let aiGroup, aiTurrets = [];
+let stalkers = [], runners = [], snails = [], sirenGeo;
+let debrisParticles = [];
 
-// Mobile Detection & Touch State
+// SHIP HEALTH SYSTEM
+let playerHP = 100;
+let enemyHP = 100;
+
+// Base spawn coordinates facing inward toward center (0,0,0)
+const BLUE_BASE = new THREE.Vector3(430, 0, 430);
+const BLUE_DEFAULT_YAW = 0.785;  // Inward facing toward Red base
+const RED_BASE = new THREE.Vector3(-430, 0, -430);
+const RED_DEFAULT_YAW = -2.356; // Inward facing toward Blue base
+
+// Mobile Detection & Touch Controls
 const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 if (isTouchDevice) {
     document.getElementById('mobile-dpad').style.display = 'block';
@@ -238,14 +249,12 @@ function bindDPadButton(id, code) {
     const el = document.getElementById(id);
     if (!el) return;
     const startHandler = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         keys[code] = true;
         el.classList.add('active');
     };
     const endHandler = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         keys[code] = false;
         el.classList.remove('active');
     };
@@ -260,7 +269,6 @@ bindDPadButton('dpad-down', 'KeyS');
 bindDPadButton('dpad-left', 'KeyA');
 bindDPadButton('dpad-right', 'KeyD');
 
-// Screen-drag steering for mobile touch
 let lastTouchX = null;
 window.addEventListener('touchstart', (e) => {
     if (e.target.closest('#mobile-dpad') || e.target.closest('#ui-layer') || e.target.closest('#lobby-screen')) return;
@@ -273,7 +281,7 @@ window.addEventListener('touchstart', (e) => {
 window.addEventListener('touchmove', (e) => {
     if (e.target.closest('#mobile-dpad') || e.target.closest('#ui-layer') || e.target.closest('#lobby-screen')) return;
     const t = e.touches[0];
-    if (lastTouchX !== null && !playerFrozenUntil) {
+    if (lastTouchX !== null) {
         let deltaX = t.clientX - lastTouchX;
         yaw -= deltaX * 0.008;
     }
@@ -285,7 +293,7 @@ window.addEventListener('touchmove', (e) => {
 window.addEventListener('touchend', () => { lastTouchX = null; }, { passive: true });
 window.addEventListener('touchcancel', () => { lastTouchX = null; }, { passive: true });
 
-// --- DYNAMIC LOBBY MANAGEMENT ---
+// --- LOBBY MANAGEMENT ---
 socket.on('lobbies_update', (lobbies) => {
     const grid = document.getElementById('lobbies-grid');
     grid.innerHTML = '';
@@ -372,11 +380,11 @@ socket.on('room_joined', (data) => {
     document.getElementById('player-role-label').innerText = `${myTeam.toUpperCase()} COMMANDER: ONLINE`;
 
     if (myTeam === 'red') {
-        playerSpawnPos.set(-430, 0, -430);
-        yaw = -2.356;
+        playerSpawnPos.copy(RED_BASE);
+        yaw = RED_DEFAULT_YAW;
     } else {
-        playerSpawnPos.set(430, 0, 430);
-        yaw = 0.785;
+        playerSpawnPos.copy(BLUE_BASE);
+        yaw = BLUE_DEFAULT_YAW;
     }
     if (scene) {
         initGameWorld();
@@ -459,11 +467,60 @@ socket.on('unitSpawned', (data) => {
     }
 });
 
-socket.on('applyStun', (data) => {
-    if (data.team === myTeam) {
-        playerFrozenUntil = Date.now() + stunDuration;
+function spawnShatterDebris(pos, colorHex) {
+    for (let i = 0; i < 40; i++) {
+        const p = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, 0.8, 0.8),
+            new THREE.MeshStandardMaterial({ color: colorHex, roughness: 1.0, metalness: 0.0 })
+        );
+        p.position.copy(pos).y += 1.5;
+        p.userData.velocity = new THREE.Vector3(
+            (Math.random() - 0.5) * 6,
+            Math.random() * 5 + 1.5,
+            (Math.random() - 0.5) * 6
+        );
+        p.userData.life = 60;
+        scene.add(p);
+        debrisParticles.push(p);
+    }
+}
+
+// RELIABLE DESTRUCTION & BASE RESPAWN
+socket.on('shipRespawn', (data) => {
+    const isTargetMe = (data.targetTeam === myTeam);
+    const deathVec = new THREE.Vector3(data.deathPos.x, data.deathPos.y, data.deathPos.z);
+    const teamColor = data.targetTeam === 'blue' ? 0x0088ff : 0xee2222;
+
+    spawnShatterDebris(deathVec, teamColor);
+
+    if (isTargetMe) {
+        playerHP = 100;
+        keys = {}; // Clear active inputs
+        if (myTeam === 'blue') {
+            playerGroup.position.copy(BLUE_BASE);
+            yaw = BLUE_DEFAULT_YAW;
+        } else {
+            playerGroup.position.copy(RED_BASE);
+            yaw = RED_DEFAULT_YAW;
+        }
+        playerGroup.rotation.y = yaw;
+        socket.emit('playerMove', { 
+            x: playerGroup.position.x, 
+            y: playerGroup.position.y, 
+            z: playerGroup.position.z, 
+            yaw: yaw 
+        });
     } else {
-        enemyFrozenUntil = Date.now() + stunDuration;
+        enemyHP = 100;
+        if (aiGroup) {
+            if (myTeam === 'blue') {
+                aiGroup.position.copy(RED_BASE);
+                aiGroup.rotation.y = RED_DEFAULT_YAW;
+            } else {
+                aiGroup.position.copy(BLUE_BASE);
+                aiGroup.rotation.y = BLUE_DEFAULT_YAW;
+            }
+        }
     }
 });
 
@@ -588,7 +645,7 @@ class CrimsonSnail {
 }
 
 function tryRecruitPlayerSnail() {
-    if (!gameActive || Date.now() < playerFrozenUntil) return; 
+    if (!gameActive) return; 
     let n = Date.now(); if (n - lastRecruitTime < recruitCooldown) return;
     if (playerGold >= 2) { 
         playerGold -= 2; 
@@ -751,7 +808,6 @@ function calculatePlacementTarget(hit) {
 }
 
 function handlePlacement() {
-    if (Date.now() < playerFrozenUntil) return; 
     raycaster.setFromCamera(mouse, camera); 
     const hits = raycaster.intersectObjects([floor, ...wallMeshes, ...userBlocks], true);
     if (hits.length > 0) {
@@ -770,12 +826,12 @@ function handlePlacement() {
 }
 
 function fireWeapon() {
-    if (Date.now() < playerFrozenUntil) return; 
     turrets.forEach(t => {
         const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0x0066ff : 0xff3333 })), wp = new THREE.Vector3();
         t.barrel.getWorldPosition(wp); b.position.copy(wp); let tar = new THREE.Vector3(); raycaster.setFromCamera(mouse, camera);
         
         const pool = [scene, floor, recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
+        if (aiGroup) pool.push(aiGroup);
         stalkers.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         runners.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         snails.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
@@ -818,7 +874,7 @@ function initGameWorld() {
     enemyPad = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 1.0, metalness: 0.0 })); 
     enemyPad.position.set(-465, 0.2, -465); scene.add(enemyPad);
 
-    stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; existingCubes.clear();
+    stalkers = []; runners = []; snails = []; userBlocks = []; aiBlocks = []; bullets = []; debrisParticles = []; existingCubes.clear();
     stalkers.push(new CrimsonStalker(0xbb2222, 0xee4444, false)); stalkers[0].group.position.set(-490, 0, -490);
     stalkers.push(new CrimsonStalker(0x0077ff, 0x00aaff, true)); stalkers[1].group.position.set(490, 0, 490);
 
@@ -846,8 +902,11 @@ function initGameWorld() {
     let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
     let eData = createShip(enemyColor); 
     aiGroup = eData.group; 
-    let enemyPos = myTeam === 'blue' ? new THREE.Vector3(-430, 0, -430) : new THREE.Vector3(430, 0, 430);
-    aiGroup.position.copy(enemyPos); scene.add(aiGroup);
+    let enemyPos = myTeam === 'blue' ? RED_BASE.clone() : BLUE_BASE.clone();
+    let enemyYaw = myTeam === 'blue' ? RED_DEFAULT_YAW : BLUE_DEFAULT_YAW;
+    aiGroup.position.copy(enemyPos); 
+    aiGroup.rotation.y = enemyYaw;
+    scene.add(aiGroup);
 
     aiGroup.visible = true;
 
@@ -864,7 +923,7 @@ function init() {
 }
 
 window.addEventListener('mousedown', (e) => {
-    if (!gameActive || Date.now() < playerFrozenUntil) return; 
+    if (!gameActive) return; 
     if (e.button === 0) isFiring = true;
     if (e.button === 2) {
         raycaster.setFromCamera(mouse, camera); 
@@ -881,7 +940,7 @@ window.addEventListener('mousedown', (e) => {
 window.addEventListener('mouseup', (e) => { if(e.button === 0) isFiring = false; if(e.button === 2) { isDragging = false; snakeHead.visible = false; }});
 window.addEventListener('mousemove', (e) => { mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1; document.getElementById('cursor-ui').style.left = e.clientX + 'px'; document.getElementById('cursor-ui').style.top = e.clientY + 'px'; });
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
-window.addEventListener('keydown', e => { if (!gameActive || Date.now() < playerFrozenUntil) return; keys[e.code] = true; if (e.code === 'KeyG') tryRecruitPlayerSnail(); });
+window.addEventListener('keydown', e => { if (!gameActive) return; keys[e.code] = true; if (e.code === 'KeyG') tryRecruitPlayerSnail(); });
 window.addEventListener('keyup', e => keys[e.code] = false);
 window.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -901,6 +960,7 @@ function checkCollision(pos) {
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
+    // Update local player badge & HP bar
     const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 1.8; wp.project(camera); 
     const pUi = document.getElementById('overhead-ui');
     if (wp.z > 1 || Math.abs(wp.x) > 1.2 || Math.abs(wp.y) > 1.2) {
@@ -909,8 +969,11 @@ function updateOverheadUI() {
         pUi.style.display = 'flex';
         pUi.style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
         pUi.style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
+        document.getElementById('player-badge-text').innerText = `VESSEL: ${playerHP} HP`;
+        document.getElementById('player-hp-bar').style.width = `${Math.max(0, playerHP)}%`;
     }
 
+    // Update opponent badge & HP bar
     const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); ew.y += 1.8; ew.project(camera); 
     const eUi = document.getElementById('opponent-overhead-ui');
     if (ew.z > 1 || Math.abs(ew.x) > 1.2 || Math.abs(ew.y) > 1.2) {
@@ -919,6 +982,8 @@ function updateOverheadUI() {
         eUi.style.display = 'flex';
         eUi.style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
         eUi.style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
+        document.getElementById('opponent-badge-text').innerText = `ENEMY: ${enemyHP} HP`;
+        document.getElementById('enemy-hp-bar').style.width = `${Math.max(0, enemyHP)}%`;
     }
 }
 
@@ -932,53 +997,23 @@ function updateCounters() {
 function animate() {
     requestAnimationFrame(animate); if (!renderer || !scene || !camera || !gameActive) return;
     
-    let now = Date.now();
-    let playerTimeLeft = playerFrozenUntil - now;
-    let enemyTimeLeft = enemyFrozenUntil - now;
-
-    let isPlayerFrozen = playerTimeLeft > 0;
-    let isEnemyFrozen = enemyTimeLeft > 0;
-
-    if (playerGroup) {
-        if (isPlayerFrozen) {
-            playerGroup.visible = (Math.floor(now / 150) % 2 === 0);
-        } else {
-            playerGroup.visible = true;
-        }
-    }
-
-    let pBadge = document.getElementById('player-status-badge');
-    let pStunBar = document.getElementById('player-stun-bar');
-    let pBadgeText = document.getElementById('player-badge-text');
-
-    if (isPlayerFrozen) {
-        pBadgeText.innerText = `FROZEN (${(playerTimeLeft / 1000).toFixed(1)}S)`;
-        pBadge.style.background = '#ffaa00';
-        pStunBar.style.width = (playerTimeLeft / stunDuration * 100) + '%';
-    } else {
-        pBadgeText.innerText = 'VESSEL: ACTIVE';
-        pBadge.style.background = '#0088ff';
-        pStunBar.style.width = '0%';
-    }
-
-    let eBadge = document.getElementById('opponent-status-badge');
-    let eStunBar = document.getElementById('opponent-stun-bar');
-    let eBadgeText = document.getElementById('opponent-badge-text');
-
-    if (isEnemyFrozen) {
-        eBadgeText.innerText = `ENEMY FROZEN`;
-        eBadge.style.background = '#ffaa00';
-        eStunBar.style.width = (enemyTimeLeft / stunDuration * 100) + '%';
-    } else {
-        eBadgeText.innerText = 'ENEMY: ACTIVE';
-        eBadge.style.background = '#cc2222';
-        eStunBar.style.width = '0%';
-    }
-
     document.getElementById('player-gold').innerText = playerGold;
     
     updateOverheadUI();
     updateCounters();
+
+    // Debris particle physics
+    for (let i = debrisParticles.length - 1; i >= 0; i--) {
+        const p = debrisParticles[i];
+        p.position.add(p.userData.velocity);
+        p.userData.velocity.y -= 0.12;
+        p.userData.life--;
+        p.scale.multiplyScalar(0.96);
+        if (p.userData.life <= 0) {
+            scene.remove(p);
+            debrisParticles.splice(i, 1);
+        }
+    }
     
     stalkers.forEach(s => s.update(playerGroup.position));
 
@@ -1018,7 +1053,7 @@ function animate() {
                 if (r.limbs['lArm']) r.limbs['lArm'].rotation.x = Math.sin(t) * 0.6;
                 if (r.limbs['rArm']) r.limbs['rArm'].rotation.x = -Math.sin(t) * 0.6;
                 if (r.limbs['lLeg']) r.limbs['lLeg'].rotation.x = -Math.sin(t) * 0.6;
-                if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = Math.sin(t) * 0.6;
+                if (r.limbs['rLeg']) r.limbs['rLeg'].rotation.x = -Math.sin(t) * 0.6;
             }
             
             if (r.group.position.distanceTo(tar) < 16) {
@@ -1076,33 +1111,31 @@ function animate() {
         }
     }
 
-    if (!isPlayerFrozen) {
-        if (!isTouchDevice) {
-            if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); 
-            if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); 
-        }
-        playerGroup.rotation.y = yaw;
+    if (!isTouchDevice) {
+        if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); 
+        if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); 
+    }
+    playerGroup.rotation.y = yaw;
 
-        let move = new THREE.Vector3(); 
-        if(keys['KeyW']) move.z -= 1; 
-        if(keys['KeyS']) move.z += 1; 
-        if(keys['KeyA']) move.x -= 1; 
-        if(keys['KeyD']) move.x += 1; 
+    let move = new THREE.Vector3(); 
+    if(keys['KeyW']) move.z -= 1; 
+    if(keys['KeyS']) move.z += 1; 
+    if(keys['KeyA']) move.x -= 1; 
+    if(keys['KeyD']) move.x += 1; 
 
-        if (move.length() > 0) { 
-            move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion); 
-            if(!checkCollision({x: playerGroup.position.x + move.x, y: 1, z: playerGroup.position.z + move.z})) { 
-                playerGroup.position.x += move.x; playerGroup.position.z += move.z; 
-            } 
-        }
-        if (isFiring && fireTimer++ % 7 === 0) fireWeapon();
-        
-        if (move.length() > 0 || Math.abs(mouse.x) > 0.3 || isTouchDevice) {
-            socket.emit('playerMove', { x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z, yaw: yaw });
-        }
+    if (move.length() > 0) { 
+        move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion); 
+        if(!checkCollision({x: playerGroup.position.x + move.x, y: 1, z: playerGroup.position.z + move.z})) { 
+            playerGroup.position.x += move.x; playerGroup.position.z += move.z; 
+        } 
+    }
+    if (isFiring && fireTimer++ % 7 === 0) fireWeapon();
+    
+    if (move.length() > 0 || Math.abs(mouse.x) > 0.3 || isTouchDevice) {
+        socket.emit('playerMove', { x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z, yaw: yaw });
     }
 
-    if (isDragging && !isPlayerFrozen) {
+    if (isDragging) {
         let fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), sd = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
         if (keys['KeyW']) depthOffset += 0.4; if (keys['KeyS']) depthOffset -= 0.4; if (keys['KeyA']) horizOffset -= 0.4; if (keys['KeyD']) horizOffset += 0.4;
         let rawOff = new THREE.Vector3().addScaledVector(fwd, depthOffset * blockSize).addScaledVector(sd, horizOffset * blockSize);
@@ -1140,9 +1173,22 @@ function animate() {
 
         let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
         
-        if (b.userData.isPlayerBullet && aiGroup && b.position.distanceTo(aiGroup.position) < 4) {
-            socket.emit('shipHit', { targetTeam: opponentTeam });
-            b.userData.life = 0;
+        // RELIABLE CRAFT HITBOX CHECK
+        if (b.userData.isPlayerBullet && aiGroup) {
+            let craftBox = new THREE.Box3().setFromCenterAndSize(aiGroup.position, new THREE.Vector3(4, 3, 6));
+            if (craftBox.containsPoint(b.position)) {
+                enemyHP -= 25; // 25 damage per hit
+                b.userData.life = 0;
+                if (enemyHP <= 0) {
+                    socket.emit('playerKilled', { 
+                        targetTeam: opponentTeam, 
+                        deathPos: { x: aiGroup.position.x, y: aiGroup.position.y, z: aiGroup.position.z }
+                    });
+                }
+                scene.remove(b);
+                bullets.splice(i, 1);
+                continue;
+            }
         }
 
         let pool = [recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
