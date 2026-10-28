@@ -7,7 +7,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; background: #e0e8f0; overflow: hidden; font-family: monospace; width: 100%; height: 100%; user-select: none; -webkit-user-select: none; }
+        body, html { margin: 0; padding: 0; background: #e0e8f0; overflow: hidden; font-family: monospace; width: 100%; height: 100%; user-select: none; -webkit-user-select: none; touch-action: none; }
         #ui-layer { position: fixed; top: 20px; left: 20px; color: #111; pointer-events: none; z-index: 10; font-size: 11px; }
         #cursor-ui { position: absolute; width: 40px; height: 40px; transform: translate(-50%, -50%); pointer-events: none; z-index: 9999; }
         .cursor-v, .cursor-h { position: absolute; background: #0088ff; box-shadow: 0 0 8px rgba(0, 136, 255, 0.6); }
@@ -15,7 +15,7 @@
         .cursor-h { top: 50%; width: 100%; height: 2px; }
         .controls { background: rgba(255, 255, 255, 0.88); backdrop-filter: blur(8px); padding: 14px; border: 2px solid #0088ff; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); text-transform: uppercase; display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
         .status { color: #0055ff; font-weight: bold; }
-        #three-canvas { width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1; }
+        #three-canvas { width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1; touch-action: none; }
         .currency-display { font-size: 13px; font-weight: bold; color: #b8860b; }
         .info-toggle { background: #0088ff; color: #fff; border: 1px solid #0066cc; padding: 3px 8px; font-size: 10px; cursor: pointer; text-transform: uppercase; border-radius: 3px; }
         .info-toggle:hover { background: #0055cc; }
@@ -87,10 +87,67 @@
         .game-over-box p { font-size: 12px; color: #aaa; margin-bottom: 20px; line-height: 1.5; }
         .restart-btn { background: #0088ff; color: #fff; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; font-family: monospace; border-radius: 4px; font-size: 12px; }
         .restart-btn:hover { background: #0055cc; }
+
+        /* --- MOBILE D-PAD (HIDDEN ON DESKTOP) --- */
+        #mobile-dpad {
+            display: none;
+            position: fixed;
+            bottom: 30px;
+            left: 30px;
+            width: 150px;
+            height: 150px;
+            z-index: 900;
+            pointer-events: auto;
+            touch-action: none;
+        }
+
+        .dpad-btn {
+            position: absolute;
+            width: 48px;
+            height: 48px;
+            background: rgba(0, 136, 255, 0.45);
+            border: 2px solid #0088ff;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 20px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        .dpad-btn:active, .dpad-btn.active {
+            background: rgba(0, 255, 136, 0.7);
+            border-color: #00ff88;
+            color: #000;
+            transform: scale(0.92);
+        }
+
+        #dpad-up { top: 0; left: 51px; }
+        #dpad-down { bottom: 0; left: 51px; }
+        #dpad-left { top: 51px; left: 0; }
+        #dpad-right { top: 51px; right: 0; }
+
+        @media (hover: none) and (pointer: coarse) {
+            #mobile-dpad { display: block; }
+            #cursor-ui { display: none; }
+        }
     </style>
 </head>
 <body>
 <div id="cursor-ui"><div class="cursor-v"></div><div class="cursor-h"></div></div>
+
+<!-- MOBILE D-PAD -->
+<div id="mobile-dpad">
+    <div class="dpad-btn" id="dpad-up">&#9650;</div>
+    <div class="dpad-btn" id="dpad-left">&#9664;</div>
+    <div class="dpad-btn" id="dpad-right">&#9654;</div>
+    <div class="dpad-btn" id="dpad-down">&#9660;</div>
+</div>
 
 <!-- 6-ROOM LOBBY OVERLAY -->
 <div id="lobby-screen">
@@ -138,7 +195,7 @@
                 <button class="info-toggle" onclick="toggleControls()">Controls [i]</button>
             </div>
             <div id="control-panel" class="control-details">
-                [W/A/S/D] MOVE | [MOUSE] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!<br><span style="color:#ff3333;">ROUNDS CANNOT ENTER ENEMY BASE ZONE!</span>
+                [W/A/S/D] MOVE | [MOUSE/TOUCH] AIM | [G] SPAWN SNAIL (2G)<br>[LMB] FIRE | [DRAG RMB] BUILD WALLS | SHOOT BASE MAN FOR MEN!<br><span style="color:#ff3333;">ROUNDS CANNOT ENTER ENEMY BASE ZONE!</span>
             </div>
             <div class="currency-display">GOLD: <span id="player-gold">100</span></div>
             <div class="live-metrics">DEPLOYED: <span id="vanguard-men">0</span> MEN | <span id="vanguard-snails">0</span> SNAILS</div>
@@ -168,6 +225,65 @@ let lastRecruitTime = 0; const recruitCooldown = 500;
 let playerSpawnPos = new THREE.Vector3(430, 0, 430);
 let aiGroup, aiSirenL, aiSirenR, aiPointLight, aiTurrets = [];
 let treadRibs = [], stalkers = [], runners = [], snails = [], sirenGeo;
+
+// Mobile Detection & Touch State
+const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+if (isTouchDevice) {
+    document.getElementById('mobile-dpad').style.display = 'block';
+    const cUi = document.getElementById('cursor-ui');
+    if (cUi) cUi.style.display = 'none';
+}
+
+function bindDPadButton(id, code) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const startHandler = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        keys[code] = true;
+        el.classList.add('active');
+    };
+    const endHandler = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        keys[code] = false;
+        el.classList.remove('active');
+    };
+
+    el.addEventListener('touchstart', startHandler, { passive: false });
+    el.addEventListener('touchend', endHandler, { passive: false });
+    el.addEventListener('touchcancel', endHandler, { passive: false });
+}
+
+bindDPadButton('dpad-up', 'KeyW');
+bindDPadButton('dpad-down', 'KeyS');
+bindDPadButton('dpad-left', 'KeyA');
+bindDPadButton('dpad-right', 'KeyD');
+
+// Screen-drag steering for mobile touch
+let lastTouchX = null;
+window.addEventListener('touchstart', (e) => {
+    if (e.target.closest('#mobile-dpad') || e.target.closest('#ui-layer') || e.target.closest('#lobby-screen')) return;
+    const t = e.touches[0];
+    lastTouchX = t.clientX;
+    mouse.x = (t.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(t.clientY / window.innerHeight) * 2 + 1;
+}, { passive: true });
+
+window.addEventListener('touchmove', (e) => {
+    if (e.target.closest('#mobile-dpad') || e.target.closest('#ui-layer') || e.target.closest('#lobby-screen')) return;
+    const t = e.touches[0];
+    if (lastTouchX !== null && !playerFrozenUntil) {
+        let deltaX = t.clientX - lastTouchX;
+        yaw -= deltaX * 0.008;
+    }
+    lastTouchX = t.clientX;
+    mouse.x = (t.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(t.clientY / window.innerHeight) * 2 + 1;
+}, { passive: true });
+
+window.addEventListener('touchend', () => { lastTouchX = null; }, { passive: true });
+window.addEventListener('touchcancel', () => { lastTouchX = null; }, { passive: true });
 
 // --- DYNAMIC LOBBY MANAGEMENT ---
 socket.on('lobbies_update', (lobbies) => {
@@ -961,8 +1077,18 @@ function animate() {
     }
 
     if (!isPlayerFrozen) {
-        if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); playerGroup.rotation.y = yaw;
-        let move = new THREE.Vector3(); if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1; if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
+        if (!isTouchDevice) {
+            if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3); 
+            if (mouse.x < -0.3) yaw -= turnSpeed * (mouse.x + 0.3); 
+        }
+        playerGroup.rotation.y = yaw;
+
+        let move = new THREE.Vector3(); 
+        if(keys['KeyW']) move.z -= 1; 
+        if(keys['KeyS']) move.z += 1; 
+        if(keys['KeyA']) move.x -= 1; 
+        if(keys['KeyD']) move.x += 1; 
+
         if (move.length() > 0) { 
             move.normalize().multiplyScalar(boatSpeed).applyQuaternion(playerGroup.quaternion); 
             if(!checkCollision({x: playerGroup.position.x + move.x, y: 1, z: playerGroup.position.z + move.z})) { 
@@ -971,7 +1097,7 @@ function animate() {
         }
         if (isFiring && fireTimer++ % 7 === 0) fireWeapon();
         
-        if (move.length() > 0 || Math.abs(mouse.x) > 0.3) {
+        if (move.length() > 0 || Math.abs(mouse.x) > 0.3 || isTouchDevice) {
             socket.emit('playerMove', { x: playerGroup.position.x, y: playerGroup.position.y, z: playerGroup.position.z, yaw: yaw });
         }
     }
