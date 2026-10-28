@@ -22,7 +22,6 @@
         .control-details { margin-top: 5px; color: #444; }
         .live-metrics { font-size: 10px; color: #c86400; font-weight: bold; }
         
-        /* --- SLEEK FLOATING BARS --- */
         #overhead-ui, #opponent-overhead-ui { 
             position: fixed; 
             pointer-events: none; 
@@ -32,6 +31,7 @@
             gap: 2px; 
             align-items: center; 
             transform: translate(-50%, -100%); 
+            transition: opacity 0.2s ease;
         }
 
         .hud-vessel-title {
@@ -256,9 +256,9 @@ let isDragging = false, isFiring = false, fireTimer = 0;
 let startPoint = new THREE.Vector3(), dragStartMouse = new THREE.Vector2();
 let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 
-// Maximum placement height constraint (3 cubes high)
+// --- 3 CUBES HIGH MAX CONSTRAINT ---
 const blockSize = 4;
-const maxWallGridHeight = 3 * blockSize; 
+const maxWallGridHeight = 3 * blockSize; // Max 12 units high (center of 3rd cube is Y = 10)
 const boatSpeed = 2.5, turnSpeed = 0.08;
 
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
@@ -282,7 +282,7 @@ let isEnemyDead = false;
 let playerWarningTimeout = null;
 let enemyWarningTimeout = null;
 
-// Base spawn coordinates
+// Base spawn coordinates facing inward toward center (0,0,0)
 const BLUE_BASE = new THREE.Vector3(430, 0, 430);
 const BLUE_DEFAULT_YAW = 0.785;
 const RED_BASE = new THREE.Vector3(-430, 0, -430);
@@ -351,7 +351,7 @@ socket.on('lobbies_update', (lobbies) => {
 
     lobbies.forEach(lobby => {
         const isMyCurrentRoom = currentRoomId === lobby.id;
-        const isFull = lobby.playerCount >= 2;
+      0const isFull = lobby.playerCount >= 2;
         const isInGame = lobby.status === 'in_game';
 
         const card = document.createElement('div');
@@ -522,6 +522,7 @@ socket.on('unitSpawned', (data) => {
     }
 });
 
+// --- CROSS-DEVICE HEALTH BAR SYNCHRONIZATION ---
 socket.on('healthUpdate', (data) => {
     if (data.targetTeam === myTeam) {
         playerHP = data.newHP;
@@ -530,6 +531,7 @@ socket.on('healthUpdate', (data) => {
     }
 });
 
+// --- CROSS-DEVICE RICOCHET SYNCHRONIZATION ---
 socket.on('ricochetEvent', (data) => {
     const hitVec = new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z);
     const normVec = new THREE.Vector3(data.normal.x, data.normal.y, data.normal.z);
@@ -542,6 +544,7 @@ socket.on('ricochetEvent', (data) => {
     }
 });
 
+// ROBUST SHATTER DEBRIS SYSTEM
 function spawnShatterDebris(pos, colorHex) {
     for (let i = 0; i < 50; i++) {
         const p = new THREE.Mesh(
@@ -576,6 +579,7 @@ function spawnRicochetSparks(pos, normalDir) {
     }
 }
 
+// RELIABLE DESTRUCTION & BASE RESPAWN
 socket.on('shipRespawn', (data) => {
     const isTargetMe = (data.targetTeam === myTeam);
     const deathVec = new THREE.Vector3(data.deathPos.x, data.deathPos.y, data.deathPos.z);
@@ -657,8 +661,9 @@ function isInProtectedBase(x, z) {
     return null;
 }
 
+// 3 CUBES HIGH MAX CHECK
 function canBuildHere(pos, isPlayer) {
-    if (pos.y > (maxWallGridHeight - (blockSize / 2) + 0.1)) return false; 
+    if (pos.y > (maxWallGridHeight - (blockSize / 2) + 0.1)) return false; // Enforce max 3 cubes high
     if (isInProtectedBase(pos.x, pos.z)) return false;
     const diagSum = pos.x + pos.z;
     if (Math.abs(diagSum) < 8) return false;
@@ -799,7 +804,7 @@ function spawnRedRunner(pos) {
 }
 
 function checkObstacleAt(pos, size) {
-    if (Math.abs(pos.x) > 492 || Math.abs(pos.z) > 492) return true;
+    if (Math.abs(pos.x) > 495 || Math.abs(pos.z) > 495) return true;
     const testBox = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(pos.x, 2, pos.z), size);
     for (let b of [...userBlocks, ...aiBlocks]) {
         if (new THREE.Box3().setFromObject(b).intersectsBox(testBox)) return true;
@@ -842,7 +847,7 @@ function executeBugNavigation(entity, currentPos, targetPos, sizeVec, speed) {
     return directDir;
 }
 
-// RESTORED 8-BLOCK HIGH WALL TILES
+// CORNER ALIGNMENT FIX (Checked posCoord >= 400 for Blue base instead of negative)
 function createAlignedWallTexture(theme, isZWall) {
     const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 100;
     const ctx = canvas.getContext('2d');
@@ -850,16 +855,11 @@ function createAlignedWallTexture(theme, isZWall) {
     const tileBg = isBlue ? '#0a1a36' : '#33080e';
     const baseTileBg = isBlue ? '#030814' : '#140205';
     const lineCol = isBlue ? '#000814' : '#140003';
-    
-    // Perimeter grid height
-    const wallVisualHeight = 32; 
-    ctx.fillStyle = isBlue ? '#08142b' : '#26060a'; 
-    ctx.fillRect(0, 0, 1000, 100 - wallVisualHeight);
-    
+    ctx.fillStyle = isBlue ? '#08142b' : '#26060a'; ctx.fillRect(0, 0, 1000, 100 - maxWallGridHeight);
     for (let u = 2; u < 1000; u += blockSize) {
         let posCoord = u - 500;
-        let isBaseWall = isBlue ? (isZWall ? (posCoord >= 400) : (posCoord <= -400)) : (isZWall ? (posCoord <= -400) : (posCoord >= 400));
-        for (let y = 0; y < wallVisualHeight; y += blockSize) {
+        let isBaseWall = isBlue ? (isZWall ? (posCoord >= 400) : (posCoord >= 400)) : (isZWall ? (posCoord <= -400) : (posCoord <= -400));
+        for (let y = 0; y < maxWallGridHeight; y += blockSize) {
             let v = 100 - y - blockSize;
             ctx.fillStyle = isBaseWall ? baseTileBg : tileBg; ctx.fillRect(u, v, blockSize, blockSize);
             ctx.strokeStyle = lineCol; ctx.strokeRect(u, v, blockSize, blockSize);
@@ -1018,9 +1018,8 @@ function initGameWorld() {
     let pData = createShip(myColor);
     playerGroup = pData.group; turrets = pData.turrets;
     playerGroup.position.copy(playerSpawnPos); playerGroup.rotation.y = yaw; scene.add(playerGroup); 
+    playerGroup.add(camera); camera.position.set(0, 7, 15); camera.lookAt(0, 0, -20);
     
-    scene.add(camera);
-
     let enemyColor = myTeam === 'blue' ? 0xcc2222 : 0x0088ff;
     let eData = createShip(enemyColor); 
     aiGroup = eData.group; 
@@ -1067,10 +1066,8 @@ window.addEventListener('keyup', e => keys[e.code] = false);
 window.addEventListener('contextmenu', e => e.preventDefault());
 
 function checkCollision(pos) {
-    const arenaBoundary = 482;
-    if (Math.abs(pos.x) > arenaBoundary || Math.abs(pos.z) > arenaBoundary) return true;
-    
-    const box = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Vector3(3.2, 2.5, 4.0));
+    if (Math.abs(pos.x) > 496 || Math.abs(pos.z) > 496) return true;
+    const box = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Vector3(2.5, 2, 2.5));
     for (let b of [...userBlocks, ...aiBlocks]) { if (box.intersectsBox(new THREE.Box3().setFromObject(b))) return true; }
     for (let sn of snails) {
         if (!sn.isShattered && sn.group) {
@@ -1081,74 +1078,35 @@ function checkCollision(pos) {
     return false;
 }
 
-function updateCameraPosition() {
-    if (!playerGroup) return;
-
-    const targetOffset = new THREE.Vector3(0, 7, 15);
-    targetOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-
-    let desiredCamPos = playerGroup.position.clone().add(targetOffset);
-
-    // Wall margin clamp: arena walls are at +-498. Camera stops strictly at +-486
-    const CAM_LIMIT = 486;
-    if (Math.abs(desiredCamPos.x) > CAM_LIMIT || Math.abs(desiredCamPos.z) > CAM_LIMIT) {
-        const directionToPlayer = new THREE.Vector3().subVectors(playerGroup.position, desiredCamPos).normalize();
-        
-        while ((Math.abs(desiredCamPos.x) > CAM_LIMIT || Math.abs(desiredCamPos.z) > CAM_LIMIT) && desiredCamPos.distanceTo(playerGroup.position) > 4) {
-            desiredCamPos.addScaledVector(directionToPlayer, 0.5);
-        }
-    }
-
-    camera.position.copy(desiredCamPos);
-    
-    const lookTarget = playerGroup.position.clone().add(new THREE.Vector3(0, 1.5, -15).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw));
-    camera.lookAt(lookTarget);
-    camera.updateMatrixWorld();
-}
-
-// SYNCHRONIZED OVERHEAD UI
 function updateOverheadUI() { 
     if(!playerGroup || !aiGroup || !camera || !renderer) return; 
     
-    // 1. Local Player Bar (Locks to ship through strafes)
+    const wp = new THREE.Vector3(); playerGroup.getWorldPosition(wp); wp.y += 2.2; wp.project(camera); 
     const pUi = document.getElementById('overhead-ui');
-    if (isPlayerDead) {
+    if (wp.z > 1 || Math.abs(wp.x) > 1.2 || Math.abs(wp.y) > 1.2 || isPlayerDead) {
         pUi.style.display = 'none';
     } else {
-        const wp = new THREE.Vector3(); 
-        playerGroup.getWorldPosition(wp); 
-        wp.y += 2.2; 
-        wp.project(camera); 
-
-        // Strictly check if point is within frustum (-1 to 1)
-        if (wp.z < -1 || wp.z > 1 || Math.abs(wp.x) > 1.1 || Math.abs(wp.y) > 1.1) {
-            pUi.style.display = 'none';
-        } else {
-            pUi.style.display = 'flex';
-            pUi.style.left = `${(wp.x * 0.5 + 0.5) * window.innerWidth}px`; 
-            pUi.style.top = `${(-wp.y * 0.5 + 0.5) * window.innerHeight}px`; 
-            document.getElementById('player-hp-bar').style.width = `${Math.max(0, (playerHP / MAX_HP) * 100)}%`;
-        }
+        pUi.style.display = 'flex';
+        pUi.style.left = `${(wp.x * .5 + .5) * window.innerWidth}px`; 
+        pUi.style.top = `${(-(wp.y * .5) + .5) * window.innerHeight}px`; 
+        document.getElementById('player-hp-bar').style.width = `${Math.max(0, (playerHP / MAX_HP) * 100)}%`;
     }
 
-    // 2. Opponent Bar (Prevents backward floating ghosts)
-    const eUi = document.getElementById('opponent-overhead-ui');
-    const ew = new THREE.Vector3(); 
-    aiGroup.getWorldPosition(ew); 
+    const ew = new THREE.Vector3(); aiGroup.getWorldPosition(ew); 
     const distToEnemy = playerGroup.position.distanceTo(ew);
     
     ew.y += 2.2; 
     ew.project(camera); 
+    const eUi = document.getElementById('opponent-overhead-ui');
 
     const inVisibilityRange = (distToEnemy <= 160) || (enemyHP < MAX_HP && distToEnemy <= 240);
 
-    // Stricter frustum check to eliminate ghosting behind camera
-    if (ew.z < -1 || ew.z > 1 || Math.abs(ew.x) > 1.1 || Math.abs(ew.y) > 1.1 || isEnemyDead || !inVisibilityRange) {
+    if (wp.z > 1 || Math.abs(ew.x) > 1.2 || Math.abs(ew.y) > 1.2 || isEnemyDead || !inVisibilityRange) {
         eUi.style.display = 'none';
     } else {
         eUi.style.display = 'flex';
-        eUi.style.left = `${(ew.x * 0.5 + 0.5) * window.innerWidth}px`; 
-        eUi.style.top = `${(-ew.y * 0.5 + 0.5) * window.innerHeight}px`; 
+        eUi.style.left = `${(ew.x * .5 + .5) * window.innerWidth}px`; 
+        eUi.style.top = `${(-(ew.y * .5) + .5) * window.innerHeight}px`; 
         
         const scale = THREE.MathUtils.clamp(1.0 - (distToEnemy / 240) * 0.4, 0.65, 1.0);
         eUi.style.transform = `translate(-50%, -100%) scale(${scale})`;
@@ -1186,8 +1144,6 @@ function animate() {
     
     document.getElementById('player-gold').innerText = playerGold;
     
-    // Smooth, un-lagged camera update before projecting UI
-    updateCameraPosition();
     updateOverheadUI();
     updateCounters();
 
@@ -1254,7 +1210,7 @@ function animate() {
                 }
             }
         } else { r.update(playerGroup.position); }
-    }
+        }
 
     for (let i = snails.length - 1; i >= 0; i--) {
         let sn = snails[i]; 
@@ -1327,11 +1283,13 @@ function animate() {
         }
     }
 
+    // --- ENFORCE STRICT 3 CUBES HIGH MAX ON RMB DRAG ---
     if (isDragging && !isPlayerDead) {
         let fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), sd = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
         if (keys['KeyW']) depthOffset += 0.4; if (keys['KeyS']) depthOffset -= 0.4; if (keys['KeyA']) horizOffset -= 0.4; if (keys['KeyD']) horizOffset += 0.4;
         let rawOff = new THREE.Vector3().addScaledVector(fwd, depthOffset * blockSize).addScaledVector(sd, horizOffset * blockSize);
         
+        // Clamp steps so vertical stacking never exceeds 3 cubes total
         const stepsY = Math.min(2, Math.floor(Math.abs(mouse.y - dragStartMouse.y) * 15));
         const signY = Math.sign(mouse.y - dragStartMouse.y);
 
@@ -1349,6 +1307,7 @@ function animate() {
                 p.x += lk.x; 
                 p.z += lk.z;
                 
+                // Enforce strictly <= 3 cubes high (max height = 12 units)
                 if (p.y >= 2 && p.y <= (maxWallGridHeight - (blockSize / 2) + 0.1) && canBuildHere(p, true)) { 
                     const k = `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`; 
                     if (!existingCubes.has(k)) { 
@@ -1381,7 +1340,9 @@ function animate() {
 
         let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
 
-        // 1. LOCAL BULLETS CHECK ENEMY CRAFT
+        // =========================================================================
+        // 1. LOCAL BULLETS CHECK ENEMY CRAFT (SHOOTER SIDE)
+        // =========================================================================
         if (b.userData.isPlayerBullet && aiGroup && !isEnemyDead) {
             let enemyBox = new THREE.Box3().setFromCenterAndSize(aiGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
             if (enemyBox.containsPoint(b.position)) {
@@ -1426,7 +1387,9 @@ function animate() {
             }
         }
 
-        // 2. REMOTE BULLETS CHECK LOCAL PLAYER CRAFT
+        // =========================================================================
+        // 2. REMOTE BULLETS CHECK LOCAL PLAYER CRAFT (VICTIM SIDE)
+        // =========================================================================
         if (!b.userData.isPlayerBullet && playerGroup && !isPlayerDead) {
             let myBox = new THREE.Box3().setFromCenterAndSize(playerGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
             if (myBox.containsPoint(b.position)) {
@@ -1451,7 +1414,7 @@ function animate() {
             }
         }
 
-        // Raycasting for pads, base men, and blocks
+        // Pad / Base Man / Wall raycasting
         let pool = [recruitmentPad, enemyPad, ...userBlocks, ...aiBlocks];
         stalkers.forEach(s => { if(!s.isShattered) pool.push(s.group); });
         runners.forEach(s => { if(!s.isShattered) pool.push(s.group); });
