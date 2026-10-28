@@ -230,10 +230,10 @@ let aiGroup, aiTurrets = [];
 let stalkers = [], runners = [], snails = [], sirenGeo;
 let debrisParticles = [];
 
-// --- BALANCED HP & COMBAT RANGE SETTINGS ---
+// --- BALANCED HP & SYNCHRONIZATION SETTINGS ---
 const MAX_HP = 300;
 const DAMAGE_PER_SHOT = 10;
-const EFFECTIVE_COMBAT_RANGE = 140; // Vessels must be within 140 units to deal damage
+const EFFECTIVE_COMBAT_RANGE = 140;
 
 let playerHP = MAX_HP;
 let enemyHP = MAX_HP;
@@ -477,6 +477,15 @@ socket.on('unitSpawned', (data) => {
     }
 });
 
+// --- CROSS-DEVICE HEALTH BAR SYNCHRONIZATION ---
+socket.on('healthUpdate', (data) => {
+    if (data.targetTeam === myTeam) {
+        playerHP = data.newHP;
+    } else {
+        enemyHP = data.newHP;
+    }
+});
+
 function spawnShatterDebris(pos, colorHex) {
     for (let i = 0; i < 40; i++) {
         const p = new THREE.Mesh(
@@ -519,7 +528,7 @@ socket.on('shipRespawn', (data) => {
 
     spawnShatterDebris(deathVec, teamColor);
 
-    // WIPE OUTSTANDING BULLETS so trailing shots can't hit the freshly respawned vessel
+    // Flush bullets so dead player isn't hit by late rounds
     for (let i = bullets.length - 1; i >= 0; i--) {
         scene.remove(bullets[i]);
     }
@@ -530,7 +539,6 @@ socket.on('shipRespawn', (data) => {
         playerHP = 0;
         keys = {}; 
         
-        // Hide during death frame, respawn clean at base after 700ms
         playerGroup.visible = false;
         setTimeout(() => {
             if (myTeam === 'blue') {
@@ -1234,33 +1242,37 @@ function animate() {
 
         let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
         
-        // --- CRAFT HIT & COMBAT RANGE ENFORCEMENT ---
+        // --- CRAFT HIT & CROSS-SCREEN HEALTH BROADCAST ---
         if (b.userData.isPlayerBullet && aiGroup && !isEnemyDead) {
             let craftBox = new THREE.Box3().setFromCenterAndSize(aiGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
             if (craftBox.containsPoint(b.position)) {
                 let distToTarget = playerGroup.position.distanceTo(aiGroup.position);
 
                 if (distToTarget > EFFECTIVE_COMBAT_RANGE) {
-                    // OUT OF RANGE: Deflect bullet with sparks & display visual tag
                     triggerEnemyRangeWarning();
                     let deflectAngle = new THREE.Vector3().subVectors(b.position, aiGroup.position).normalize();
                     spawnRicochetSparks(b.position, deflectAngle);
                     
-                    // Deflect bullet trajectory away
                     b.userData.velocity.set(
                         (Math.random() - 0.5) * 4,
                         Math.random() * 5 + 3,
                         (Math.random() - 0.5) * 4
                     );
-                    b.userData.isPlayerBullet = false; // Cannot hit again
-                    b.userData.life = 15; // Quick dissipate
+                    b.userData.isPlayerBullet = false;
+                    b.userData.life = 15;
                     continue;
                 } else {
-                    // IN RANGE: Inflict full armor damage
-                    enemyHP -= DAMAGE_PER_SHOT;
+                    let updatedEnemyHP = Math.max(0, enemyHP - DAMAGE_PER_SHOT);
+                    enemyHP = updatedEnemyHP;
+
+                    // BROADCAST HP DROP TO OPPONENT IN REAL TIME
+                    socket.emit('shipDamage', {
+                        targetTeam: opponentTeam,
+                        newHP: updatedEnemyHP
+                    });
+
                     b.userData.life = 0;
                     if (enemyHP <= 0) {
-                        enemyHP = 0;
                         socket.emit('playerKilled', { 
                             targetTeam: opponentTeam, 
                             deathPos: { x: aiGroup.position.x, y: aiGroup.position.y, z: aiGroup.position.z }
