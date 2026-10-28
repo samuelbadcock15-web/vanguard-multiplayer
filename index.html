@@ -124,7 +124,7 @@
         #game-over-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.82); z-index: 1000; display: none; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-family: monospace; text-transform: uppercase; }
         .game-over-box { background: #111; border: 3px solid #0088ff; padding: 30px; border-radius: 6px; text-align: center; box-shadow: 0 0 30px rgba(0,136,255,0.5); min-width: 320px; }
         .game-over-box h1 { font-size: 24px; margin-bottom: 10px; color: #00ff88; }
-        .game-over-box p { font-size: 12px; color: #aaa; margin-bottom: 20px; line-height: 1.5; }
+        .game-over-box p { font-size: 12px; color: #aaa; margin-bottom: 20px; line-height: 1.5; white-space: pre-line; }
         .restart-btn { background: #0088ff; color: #fff; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; font-family: monospace; border-radius: 4px; font-size: 12px; }
         .restart-btn:hover { background: #0055cc; }
 
@@ -183,7 +183,7 @@
     <div class="game-over-box">
         <h1 id="winner-announcement">GAME OVER</h1>
         <p id="match-stats">ANALYZING COMBAT DATA...</p>
-        <button class="restart-btn" onclick="location.reload()">RELOAD ARENA</button>
+        <button class="restart-btn" onclick="location.reload()">RETURN TO LOBBY</button>
     </div>
 </div>
 
@@ -222,7 +222,6 @@ let myTeam = 'blue';
 let currentRoomId = null;
 let myReadyState = false;
 
-// THREE CLOCK FOR FRAME-INDEPENDENT DELTA TIME
 const clock = new THREE.Clock();
 let syncTimer = 0;
 
@@ -234,7 +233,6 @@ let depthOffset = 0, horizOffset = 0, existingCubes = new Map(), yaw = 0;
 
 const blockSize = 4;
 const maxWallGridHeight = 3 * blockSize; 
-// Speed calibrated per second instead of per frame
 const boatSpeed = 75.0, turnSpeed = 2.4;
 
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
@@ -242,14 +240,11 @@ let playerGold = 100;
 let gameActive = false, playerSnailsSpawned = 0, aiSnailsSpawned = 0;
 let lastRecruitTime = 0; const recruitCooldown = 500;
 let playerSpawnPos = new THREE.Vector3(430, 0, 430);
-let aiGroup, aiTurrets = [];
+let aiGroup;
 let stalkers = [], runners = [], snails = [], sirenGeo;
 let debrisParticles = [];
 
 const MAX_HP = 300;
-const DAMAGE_PER_SHOT = 10;
-const EFFECTIVE_COMBAT_RANGE = 140;
-
 let playerHP = MAX_HP;
 let enemyHP = MAX_HP;
 let isPlayerDead = false;
@@ -295,7 +290,7 @@ bindDPadButton('dpad-right', 'KeyD');
 
 let lastTouchX = null;
 window.addEventListener('touchstart', (e) => {
-    if (e.target.closest('#mobile-dpad') || e.target.closest('#ui-layer') || e.target.closest('#lobby-screen')) return;
+    if (e.target.closest('#mobile-dpad') || e.target.closest('#ui-layer') || e.target.closest('#lobby-screen') || e.target.closest('#game-over-screen')) return;
     const t = e.touches[0];
     lastTouchX = t.clientX;
     mouse.x = (t.clientX / window.innerWidth) * 2 - 1;
@@ -303,7 +298,7 @@ window.addEventListener('touchstart', (e) => {
 }, { passive: true });
 
 window.addEventListener('touchmove', (e) => {
-    if (e.target.closest('#mobile-dpad') || e.target.closest('#ui-layer') || e.target.closest('#lobby-screen')) return;
+    if (e.target.closest('#mobile-dpad') || e.target.closest('#ui-layer') || e.target.closest('#lobby-screen') || e.target.closest('#game-over-screen')) return;
     const t = e.touches[0];
     if (lastTouchX !== null) {
         let deltaX = t.clientX - lastTouchX;
@@ -422,12 +417,21 @@ socket.on('room_joined', (data) => {
 socket.on('left_room_success', () => {
     currentRoomId = null;
     myReadyState = false;
+    gameActive = false;
+    document.getElementById('lobby-screen').style.display = 'flex';
+    document.getElementById('overhead-ui').style.display = 'none';
+    document.getElementById('opponent-overhead-ui').style.display = 'none';
 });
 
 socket.on('lobby_error', (msg) => { alert(msg); });
 
 socket.on('start_match_countdown', (data) => {
     myTeam = data.team;
+    playerHP = MAX_HP;
+    enemyHP = MAX_HP;
+    isPlayerDead = false;
+    isEnemyDead = false;
+
     document.getElementById('lobby-screen').style.display = 'none';
     const countdownScreen = document.getElementById('countdown-screen');
     const numberEl = document.getElementById('countdown-number');
@@ -467,7 +471,7 @@ socket.on('enemyFire', (data) => {
     const b = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 2.5), new THREE.MeshBasicMaterial({ color: myTeam === 'blue' ? 0xee2222 : 0x0088ff }));
     b.position.set(data.x, data.y, data.z);
     b.userData.velocity = new THREE.Vector3(data.vx, data.vy, data.vz);
-    b.userData.life = 120;
+    b.userData.life = 2.0;
     b.userData.isPlayerBullet = false;
     bullets.push(b);
     scene.add(b);
@@ -485,7 +489,6 @@ socket.on('blockPlaced', (data) => {
     }
 });
 
-// MULTIPLAYER UNIT SPAWN WITH SYNCHRONIZED IDs
 socket.on('unitSpawned', (data) => {
     const isMine = (data.team === myTeam);
     if (data.type === 'snail') {
@@ -498,13 +501,11 @@ socket.on('unitSpawned', (data) => {
     }
 });
 
-// AUTHORITATIVE POSITION SYNC FROM OPPONENT
 socket.on('unitSync', (data) => {
     data.units.forEach(uData => {
         let list = uData.type === 'runner' ? runners : snails;
         let unit = list.find(u => u.id === uData.id);
         if (unit && !unit.isAuthoritative) {
-            // Smoothly target authoritative position
             unit.targetPos = new THREE.Vector3(uData.x, uData.y, uData.z);
             unit.targetYaw = uData.yaw;
         }
@@ -630,7 +631,7 @@ socket.on('shipRespawn', (data) => {
     }
 });
 
-socket.on('playerLeft', (data) => {
+socket.on('playerLeft', () => {
     triggerGameOver("OPPONENT DISCONNECTED", "THE ENEMY COMMANDER HAS ABANDONED THE ARENA.");
 });
 
@@ -642,7 +643,10 @@ function triggerGameOver(title, desc) {
     document.getElementById('game-over-screen').style.display = 'flex';
 }
 
-function toggleControls() { const p = document.getElementById('control-panel'); p.style.display = p.style.display === 'none' ? 'block' : 'none'; }
+function toggleControls() { 
+    const p = document.getElementById('control-panel'); 
+    p.style.display = p.style.display === 'none' ? 'block' : 'none'; 
+}
 
 function isInProtectedBase(x, z) {
     if (x >= 400 && z >= 400) return 'blue';
@@ -673,6 +677,7 @@ class CrimsonStalker {
         this.navState = 'SEEK';
         this.wallFollowDir = Math.random() > 0.5 ? 1 : -1;
         this.followSteps = 0;
+        this.trappedTimer = 0;
         this.startFollowPos = new THREE.Vector3();
         this.currentHeading = new THREE.Vector3(0, 0, 1);
         
@@ -686,7 +691,7 @@ class CrimsonStalker {
         this.group.userData.entity = this;
         scene.add(this.group);
     }
-    takeDamage(part, amt, hitPl) {
+    takeDamage(part, amt) {
         if (this.isShattered || !this.limbs[part]) return;
         if (this.isYellowBaseMan) return; 
         this.health[part] -= (part === 'head' ? amt * 3 : amt);
@@ -728,9 +733,9 @@ class CrimsonSnail {
         this.targetPos = null;
         this.targetYaw = null;
         this.group = new THREE.Group(); this.health = 120; this.isShattered = false; this.isYellowTeam = isYTeam;
-        this.moveSpeed = 30.0; // Units per second
+        this.moveSpeed = 30.0;
         this.currentWaypointIndex = 0; this.waypoints = [];
-        this.navState = 'SEEK'; this.wallFollowDir = Math.random() > 0.5 ? 1 : -1; this.followSteps = 0; this.startFollowPos = new THREE.Vector3(); this.currentHeading = new THREE.Vector3(0, 0, 1);
+        this.navState = 'SEEK'; this.wallFollowDir = Math.random() > 0.5 ? 1 : -1; this.followSteps = 0; this.trappedTimer = 0; this.startFollowPos = new THREE.Vector3(); this.currentHeading = new THREE.Vector3(0, 0, 1);
         
         const mat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 1.0, metalness: 0.0 });
         const sh = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 2.0, 8), mat); sh.rotation.z = Math.PI / 2; sh.position.y = 2; this.group.add(sh);
@@ -791,7 +796,7 @@ function spawnYellowRunner(pos, id, isMine) {
     let r = new CrimsonStalker(0x0088ff, 0x0088ff, false, false, true, id, isMine); 
     r.group.position.copy(pos); 
     r.waypoints = [new THREE.Vector3(490, 0, 490), new THREE.Vector3(490, 0, -490), new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-465, 0, -465)]; 
-    r.currentWaypointIndex = 0; r.moveSpeed = 72.0; // Units per second
+    r.currentWaypointIndex = 0; r.moveSpeed = 72.0;
     runners.push(r); 
 }
 
@@ -799,7 +804,7 @@ function spawnRedRunner(pos, id, isMine) {
     let r = new CrimsonStalker(0xdd3333, 0xdd3333, false, true, false, id, isMine); 
     r.group.position.copy(pos); 
     r.waypoints = [new THREE.Vector3(-490, 0, -490), new THREE.Vector3(-490, 0, 490), new THREE.Vector3(490, 0, 490), new THREE.Vector3(465, 0, 465)]; 
-    r.currentWaypointIndex = 0; r.moveSpeed = 72.0; // Units per second
+    r.currentWaypointIndex = 0; r.moveSpeed = 72.0;
     runners.push(r); 
 }
 
@@ -812,6 +817,7 @@ function checkObstacleAt(pos, size) {
     return false;
 }
 
+// Resilient Bug Navigation: incorporates unstick sweeps and diagonal clearances
 function executeBugNavigation(entity, currentPos, targetPos, sizeVec, speed, dt) {
     let toTarget = new THREE.Vector3().subVectors(targetPos, currentPos); toTarget.y = 0;
     let directDir = toTarget.clone().normalize();
@@ -819,13 +825,24 @@ function executeBugNavigation(entity, currentPos, targetPos, sizeVec, speed, dt)
     let directClear = !checkObstacleAt(directStep, sizeVec);
 
     if (entity.navState === 'TRAPPED') {
-        if (directClear) { entity.navState = 'SEEK'; entity.followSteps = 0; }
-        else { return null; }
+        entity.trappedTimer = (entity.trappedTimer || 0) + dt;
+        if (directClear || entity.trappedTimer > 1.2) { 
+            entity.navState = 'SEEK'; 
+            entity.followSteps = 0; 
+            entity.trappedTimer = 0;
+            entity.wallFollowDir *= -1;
+        } else { 
+            return null; 
+        }
     }
     if (entity.navState === 'SEEK') {
-        if (directClear) { entity.currentHeading.copy(directDir); return directDir; }
-        else {
-            entity.navState = 'WALL_FOLLOW'; entity.followSteps = 0; entity.startFollowPos.copy(currentPos);
+        if (directClear) { 
+            entity.currentHeading.copy(directDir); 
+            return directDir; 
+        } else {
+            entity.navState = 'WALL_FOLLOW'; 
+            entity.followSteps = 0; 
+            entity.startFollowPos.copy(currentPos);
             let rightDir = directDir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
             let rightClear = !checkObstacleAt(currentPos.clone().addScaledVector(rightDir, Math.max(speed * dt * 2.0, 1.5)), sizeVec);
             entity.wallFollowDir = rightClear ? -1 : 1;
@@ -834,15 +851,39 @@ function executeBugNavigation(entity, currentPos, targetPos, sizeVec, speed, dt)
     }
     if (entity.navState === 'WALL_FOLLOW') {
         entity.followSteps += dt * 60;
-        if (entity.followSteps > 60 && currentPos.distanceTo(entity.startFollowPos) < 12) { entity.navState = 'TRAPPED'; return null; }
-        if (directClear && entity.followSteps > 15) { entity.navState = 'SEEK'; entity.followSteps = 0; return directDir; }
-        let moveHeading = null;
-        for (let a of [-Math.PI/3 * entity.wallFollowDir, 0, Math.PI/2 * entity.wallFollowDir]) {
-            let probeDir = entity.currentHeading.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
-            if (!checkObstacleAt(currentPos.clone().addScaledVector(probeDir, Math.max(speed * dt * 2.0, 1.5)), sizeVec)) { moveHeading = probeDir; break; }
+        if (entity.followSteps > 60 && currentPos.distanceTo(entity.startFollowPos) < 12) { 
+            entity.navState = 'TRAPPED'; 
+            entity.trappedTimer = 0;
+            return null; 
         }
-        if (moveHeading) { entity.currentHeading.copy(moveHeading); return moveHeading; }
-        else { entity.wallFollowDir *= -1; return null; }
+        if (directClear && entity.followSteps > 15) { 
+            entity.navState = 'SEEK'; 
+            entity.followSteps = 0; 
+            return directDir; 
+        }
+        
+        let moveHeading = null;
+        const anglesToTest = [
+            -Math.PI / 4 * entity.wallFollowDir, 
+            0, 
+            Math.PI / 4 * entity.wallFollowDir, 
+            Math.PI / 2 * entity.wallFollowDir
+        ];
+        
+        for (let a of anglesToTest) {
+            let probeDir = entity.currentHeading.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
+            if (!checkObstacleAt(currentPos.clone().addScaledVector(probeDir, Math.max(speed * dt * 2.0, 1.5)), sizeVec)) { 
+                moveHeading = probeDir; 
+                break; 
+            }
+        }
+        if (moveHeading) { 
+            entity.currentHeading.copy(moveHeading); 
+            return moveHeading; 
+        } else { 
+            entity.wallFollowDir *= -1; 
+            return null; 
+        }
     }
     return directDir;
 }
@@ -863,13 +904,7 @@ function createAlignedWallTexture(theme, isZWall) {
 
     for (let u = 2; u < 1000; u += blockSize) {
         let posCoord = u - 500;
-        
-        let isBaseWall = false;
-        if (isBlue) {
-            isBaseWall = isZWall ? (posCoord <= -400) : (posCoord >= 400);
-        } else {
-            isBaseWall = isZWall ? (posCoord <= -400) : (posCoord >= 400);
-        }
+        let isBaseWall = isZWall ? (posCoord <= -400) : (posCoord >= 400);
 
         for (let y = 0; y < maxWallGridHeight; y += blockSize) {
             let v = 100 - y - blockSize;
@@ -1138,9 +1173,15 @@ function fireWeapon() {
         stalkers.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         runners.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
         snails.forEach(s => { if(s && s.group && !s.isShattered) pool.push(s.group); });
-        const hits = raycaster.intersectObjects(pool, true); if (hits.length > 0) { hits.sort((a, b) => a.distance - b.distance); tar.copy(hits[0].point); } else { raycaster.ray.at(200, tar); }
+        const hits = raycaster.intersectObjects(pool, true); 
+        if (hits.length > 0) { 
+            hits.sort((a, b) => a.distance - b.distance); 
+            tar.copy(hits[0].point); 
+        } else { 
+            raycaster.ray.at(200, tar); 
+        }
         b.lookAt(tar); 
-        let vel = tar.sub(wp).normalize().multiplyScalar(360.0); // 360 units/sec
+        let vel = tar.sub(wp).normalize().multiplyScalar(360.0);
         b.userData.velocity = vel; b.userData.life = 2.0; b.userData.isPlayerBullet = true; scene.add(b); bullets.push(b);
         socket.emit('playerFire', { x: wp.x, y: wp.y, z: wp.z, vx: vel.x, vy: vel.y, vz: vel.z });
     });
@@ -1351,7 +1392,6 @@ function animate() {
     requestAnimationFrame(animate); 
     if (!renderer || !scene || !camera || !gameActive) return; 
 
-    // CALCULATE ACCURATE FRAME-INDEPENDENT DELTA TIME (CAP AT 0.1s FOR LAG SPIKES)
     const dt = Math.min(clock.getDelta(), 0.1);
 
     document.getElementById('player-gold').innerText = playerGold;
@@ -1359,7 +1399,7 @@ function animate() {
     updateOverheadUI();
     updateCounters();
 
-    // 1. PARTICLES (DELTA-TIME WEIGHTED)
+    // 1. PARTICLES
     for (let i = debrisParticles.length - 1; i >= 0; i--) {
         const p = debrisParticles[i];
         p.position.addScaledVector(p.userData.velocity, dt * 60);
@@ -1376,7 +1416,7 @@ function animate() {
     
     stalkers.forEach(s => s.update(playerGroup.position, dt));
 
-    // 2. RUNNERS SIMULATION & SYNC
+    // 2. RUNNERS
     for (let i = runners.length - 1; i >= 0; i--) {
         let r = runners[i];
         if (r.markedForRemoval) { scene.remove(r.group); runners.splice(i, 1); continue; }
@@ -1384,7 +1424,6 @@ function animate() {
         let targetBasePos = r.isYellowRunner ? new THREE.Vector3(-465, 0, -465) : new THREE.Vector3(465, 0, 465);
         let reachedEnemyBase = r.group.position.distanceTo(targetBasePos) < 14;
 
-        // Authoritative base breach trigger
         if (reachedEnemyBase && r.isAuthoritative) {
             let targetBaseTeam = r.isYellowRunner ? 'red' : 'blue';
             r.explode();
@@ -1420,14 +1459,12 @@ function animate() {
                     }
                 }
             } else if (r.targetPos) {
-                // Non-authoritative: smooth interpolation toward opponent's true coordinates
                 r.group.position.lerp(r.targetPos, Math.min(dt * 15, 1.0));
                 if (r.targetYaw !== null) {
                     r.group.rotation.y = THREE.MathUtils.lerp(r.group.rotation.y, r.targetYaw, Math.min(dt * 15, 1.0));
                 }
             }
 
-            // Limb Animation
             let t = Date.now() * 0.015;
             if (r.limbs['lArm']) r.limbs['lArm'].rotation.x = Math.sin(t) * 0.6;
             if (r.limbs['rArm']) r.limbs['rArm'].rotation.x = -Math.sin(t) * 0.6;
@@ -1438,7 +1475,7 @@ function animate() {
         }
     }
 
-    // 3. SNAILS SIMULATION & SYNC
+    // 3. SNAILS
     for (let i = snails.length - 1; i >= 0; i--) {
         let sn = snails[i]; 
         if (sn.markedForRemoval) { scene.remove(sn.group); snails.splice(i, 1); continue; }
@@ -1491,7 +1528,7 @@ function animate() {
         }
     }
 
-    // 4. AUTHORITATIVE NETWORK SYNC DISPATCH (10 times per second)
+    // 4. NETWORK SYNC (10 Hz)
     syncTimer += dt;
     if (syncTimer >= 0.1) {
         syncTimer = 0;
@@ -1504,7 +1541,7 @@ function animate() {
         }
     }
 
-    // 5. PLAYER VESSEL CONTROLS
+    // 5. VESSEL CONTROLS
     if (!isPlayerDead) {
         if (!isTouchDevice) {
             if (mouse.x > 0.3) yaw -= turnSpeed * (mouse.x - 0.3) * dt; 
@@ -1531,7 +1568,7 @@ function animate() {
         }
     }
 
-    // 6. BUILD SYSTEM
+    // 6. WALL BUILD SYSTEM
     if (isDragging && !isPlayerDead) {
         let fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw), sd = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
         if (keys['KeyW']) depthOffset += 0.4; if (keys['KeyS']) depthOffset -= 0.4; if (keys['KeyA']) horizOffset -= 0.4; if (keys['KeyD']) horizOffset += 0.4;
@@ -1572,7 +1609,7 @@ function animate() {
         }
     }
 
-    // 7. BULLET PHYSICS (DELTA-TIME WEIGHTED)
+    // 7. BULLET PHYSICS & SERVER-AUTHORITATIVE HIT CONFIRMATION
     for(let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i]; 
         b.position.addScaledVector(b.userData.velocity, dt); 
@@ -1587,75 +1624,21 @@ function animate() {
             scene.remove(b); bullets.splice(i, 1); continue;
         }
 
-        let opponentTeam = (myTeam === 'blue' ? 'red' : 'blue');
-
-        // Local bullet hit detection on enemy craft
-        if (b.userData.isPlayerBullet && aiGroup && !isEnemyDead) {
-            let enemyBox = new THREE.Box3().setFromCenterAndSize(aiGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
-            if (enemyBox.containsPoint(b.position)) {
-                let distToTarget = playerGroup.position.distanceTo(aiGroup.position);
-
-                if (distToTarget > EFFECTIVE_COMBAT_RANGE) {
-                    let deflectAngle = new THREE.Vector3().subVectors(b.position, aiGroup.position).normalize();
-                    socket.emit('bulletDeflected', {
-                        targetTeam: opponentTeam,
-                        pos: { x: b.position.x, y: b.position.y, z: b.position.z },
-                        normal: { x: deflectAngle.x, y: deflectAngle.y, z: deflectAngle.z }
-                    });
-
-                    b.userData.velocity.set(
-                        (Math.random() - 0.5) * 240,
-                        Math.random() * 300 + 180,
-                        (Math.random() - 0.5) * 240
-                    );
-                    b.userData.isPlayerBullet = false;
-                    b.userData.life = 0.25;
-                    continue;
-                } else {
-                    let updatedEnemyHP = Math.max(0, enemyHP - DAMAGE_PER_SHOT);
-                    enemyHP = updatedEnemyHP;
-
-                    socket.emit('shipDamage', {
-                        targetTeam: opponentTeam,
-                        newHP: updatedEnemyHP
-                    });
-
-                    b.userData.life = 0;
-                    if (enemyHP <= 0) {
-                        socket.emit('playerKilled', { 
-                            targetTeam: opponentTeam, 
-                            deathPos: { x: aiGroup.position.x, y: aiGroup.position.y, z: aiGroup.position.z }
-                        });
-                    }
-                    scene.remove(b);
-                    bullets.splice(i, 1);
-                    continue;
-                }
-            }
-        }
-
-        // Remote bullet hit detection on local vessel
+        // VICTIM-AUTHORITATIVE COLLISION: If an incoming enemy bullet touches my vessel
         if (!b.userData.isPlayerBullet && playerGroup && !isPlayerDead) {
             let myBox = new THREE.Box3().setFromCenterAndSize(playerGroup.position, new THREE.Vector3(4.5, 3.5, 6.5));
             if (myBox.containsPoint(b.position)) {
-                let distToEnemyShooter = playerGroup.position.distanceTo(aiGroup ? aiGroup.position : playerGroup.position);
+                let hitNormal = new THREE.Vector3().subVectors(b.position, playerGroup.position).normalize();
                 
-                if (distToEnemyShooter > EFFECTIVE_COMBAT_RANGE) {
-                    let deflectAngle = new THREE.Vector3().subVectors(b.position, playerGroup.position).normalize();
-                    spawnRicochetSparks(b.position, deflectAngle);
-                    triggerPlayerRangeWarning();
-                    b.userData.velocity.set(
-                        (Math.random() - 0.5) * 240,
-                        Math.random() * 300 + 180,
-                        (Math.random() - 0.5) * 240
-                    );
-                    b.userData.life = 0.25;
-                    continue;
-                } else {
-                    scene.remove(b);
-                    bullets.splice(i, 1);
-                    continue;
-                }
+                // Transmit hit to server for distance check, damage application, or deflection broadcast
+                socket.emit('hitRegistered', {
+                    hitPos: { x: b.position.x, y: b.position.y, z: b.position.z },
+                    hitNormal: { x: hitNormal.x, y: hitNormal.y, z: hitNormal.z }
+                });
+
+                scene.remove(b);
+                bullets.splice(i, 1);
+                continue;
             }
         }
 
@@ -1668,8 +1651,10 @@ function animate() {
         if(bHit.length > 0) {
             let hObj = bHit[0].object, isPad = false, cPad = hObj; 
             while(cPad && cPad !== scene) { if(cPad === recruitmentPad || cPad === enemyPad) { isPad = true; break; } cPad = cPad.parent; }
-            if (isPad) { if (b.userData.isPlayerBullet) tryRecruitPlayerSnail(); b.userData.life = 0; } 
-            else {
+            if (isPad) { 
+                if (b.userData.isPlayerBullet) tryRecruitPlayerSnail(); 
+                b.userData.life = 0; 
+            } else {
                 let ent = null, curr = hObj; 
                 while (curr && curr !== scene) { ent = [...stalkers, ...runners, ...snails].find(s => s.group === curr); if (ent) break; curr = curr.parent; }
                 if (ent) {
@@ -1679,7 +1664,7 @@ function animate() {
                             playerGold -= 1;
                             const runnerId = `r_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
                             socket.emit('spawnUnit', { id: runnerId, type: 'runner', team: myTeam });
-                        } else if (!ent.isYellowBaseMan && !ent.isBlueBaseMan) {
+                        } else if (!ent.isYellowBaseMan) {
                             ent.takeDamage(hObj.userData.partName || 'torso', 50, true);
                         }
                         b.userData.life = 0;
@@ -1687,7 +1672,10 @@ function animate() {
                 } else if (hObj !== floor) {
                     let r = hObj; while(r.parent && r.parent !== scene) r = r.parent;
                     existingCubes.delete(`${Math.round(r.position.x)},${Math.round(r.position.y)},${Math.round(r.position.z)}`);
-                    scene.remove(r); userBlocks = userBlocks.filter(o => o !== r); aiBlocks = aiBlocks.filter(o => o !== r); b.userData.life = 0;
+                    scene.remove(r); 
+                    userBlocks = userBlocks.filter(o => o !== r); 
+                    aiBlocks = aiBlocks.filter(o => o !== r); 
+                    b.userData.life = 0;
                 }
             }
         }
