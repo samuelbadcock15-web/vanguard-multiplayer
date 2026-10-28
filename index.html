@@ -121,11 +121,24 @@
         #countdown-number { font-size: clamp(60px, 15vw, 110px); font-weight: 900; color: #00ff88; text-shadow: 0 0 20px rgba(0,255,136,0.8); margin: 20px 0; animation: popIn 0.5s ease-out; }
         @keyframes popIn { 0% { transform: scale(0.3); opacity: 0; } 80% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); } }
 
-        #game-over-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.82); z-index: 1000; display: none; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-family: monospace; text-transform: uppercase; }
-        .game-over-box { background: #111; border: 3px solid #0088ff; padding: 30px; border-radius: 6px; text-align: center; box-shadow: 0 0 30px rgba(0,136,255,0.5); min-width: 320px; }
-        .game-over-box h1 { font-size: 24px; margin-bottom: 10px; color: #00ff88; }
-        .game-over-box p { font-size: 12px; color: #aaa; margin-bottom: 20px; line-height: 1.5; white-space: pre-line; }
-        .restart-btn { background: #0088ff; color: #fff; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; font-family: monospace; border-radius: 4px; font-size: 12px; }
+        #game-over-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 1000; display: none; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-family: monospace; text-transform: uppercase; }
+        .game-over-box { background: #0d131f; border: 2px solid #0088ff; padding: 24px 30px; border-radius: 8px; text-align: center; box-shadow: 0 0 40px rgba(0,136,255,0.4); max-width: 440px; width: 90%; box-sizing: border-box; }
+        .game-over-box h1 { font-size: 26px; margin: 0 0 12px; letter-spacing: 2px; }
+        
+        #win-snapshot {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.7);
+            margin-bottom: 14px;
+            display: none;
+            background: #000;
+        }
+
+        .game-over-box p { font-size: 12px; color: #aaa; margin-bottom: 16px; line-height: 1.6; white-space: pre-line; }
+        .restart-btn { background: #0088ff; color: #fff; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; font-family: monospace; border-radius: 4px; font-size: 12px; text-transform: uppercase; }
         .restart-btn:hover { background: #0055cc; }
 
         #mobile-dpad {
@@ -181,7 +194,8 @@
 
 <div id="game-over-screen">
     <div class="game-over-box">
-        <h1 id="winner-announcement">GAME OVER</h1>
+        <h1 id="winner-announcement">MATCH COMPLETE</h1>
+        <img id="win-snapshot" alt="Terminal Combat Breach Evidence" />
         <p id="match-stats">ANALYZING COMBAT DATA...</p>
         <button class="restart-btn" onclick="location.reload()">RETURN TO LOBBY</button>
     </div>
@@ -320,7 +334,7 @@ socket.on('lobbies_update', (lobbies) => {
     lobbies.forEach(lobby => {
         const isMyCurrentRoom = currentRoomId === lobby.id;
         const isFull = lobby.playerCount >= 2;
-        const isInGame = lobby.status === 'in_game';
+        const isInGame = lobby.status === 'in_game' || lobby.status === 'post_game';
 
         const card = document.createElement('div');
         card.className = `arena-card ${isMyCurrentRoom ? 'active-room' : ''}`;
@@ -418,6 +432,7 @@ socket.on('left_room_success', () => {
     currentRoomId = null;
     myReadyState = false;
     gameActive = false;
+    document.getElementById('game-over-screen').style.display = 'none';
     document.getElementById('lobby-screen').style.display = 'flex';
     document.getElementById('overhead-ui').style.display = 'none';
     document.getElementById('opponent-overhead-ui').style.display = 'none';
@@ -433,6 +448,7 @@ socket.on('start_match_countdown', (data) => {
     isEnemyDead = false;
 
     document.getElementById('lobby-screen').style.display = 'none';
+    document.getElementById('game-over-screen').style.display = 'none';
     const countdownScreen = document.getElementById('countdown-screen');
     const numberEl = document.getElementById('countdown-number');
     const teamTextEl = document.getElementById('countdown-team-text');
@@ -512,8 +528,32 @@ socket.on('unitSync', (data) => {
     });
 });
 
+// TERMINAL MATCH END: SNAPSHOT & PERSONALIZED HUD
 socket.on('matchEnded', (data) => {
-    triggerGameOver(data.title, data.desc);
+    const snapImg = document.getElementById('win-snapshot');
+    if (renderer && renderer.domElement) {
+        try {
+            snapImg.src = renderer.domElement.toDataURL('image/jpeg', 0.75);
+            snapImg.style.display = 'block';
+            snapImg.style.borderColor = (data.outcome === 'VICTORY') ? '#00ff88' : '#ff3333';
+        } catch(e) {
+            snapImg.style.display = 'none';
+        }
+    }
+
+    gameActive = false;
+
+    const titleEl = document.getElementById('winner-announcement');
+    const statsEl = document.getElementById('match-stats');
+    const screenEl = document.getElementById('game-over-screen');
+
+    titleEl.innerText = data.outcome;
+    const isWin = (data.outcome === 'VICTORY');
+    titleEl.style.color = isWin ? '#00ff88' : '#ff3333';
+    titleEl.style.textShadow = isWin ? '0 0 25px rgba(0, 255, 136, 0.8)' : '0 0 25px rgba(255, 51, 51, 0.8)';
+
+    statsEl.innerText = `${data.reason}\n\nRETURNING TO LOBBY IN 6 SECONDS...`;
+    screenEl.style.display = 'flex';
 });
 
 socket.on('healthUpdate', (data) => {
@@ -632,16 +672,15 @@ socket.on('shipRespawn', (data) => {
 });
 
 socket.on('playerLeft', () => {
-    triggerGameOver("OPPONENT DISCONNECTED", "THE ENEMY COMMANDER HAS ABANDONED THE ARENA.");
-});
-
-function triggerGameOver(title, desc) {
-    if (!gameActive) return;
-    gameActive = false;
-    document.getElementById('winner-announcement').innerText = title;
-    document.getElementById('match-stats').innerText = `${desc}\n\nSNAILS SPAWNED: ${playerSnailsSpawned}`;
+    const titleEl = document.getElementById('winner-announcement');
+    const statsEl = document.getElementById('match-stats');
+    titleEl.innerText = "OPPONENT RETREATED";
+    titleEl.style.color = "#ffaa00";
+    statsEl.innerText = "THE ENEMY COMMANDER HAS DISCONNECTED.\nRETURNING TO LOBBY...";
+    document.getElementById('win-snapshot').style.display = 'none';
     document.getElementById('game-over-screen').style.display = 'flex';
-}
+    gameActive = false;
+});
 
 function toggleControls() { 
     const p = document.getElementById('control-panel'); 
@@ -817,7 +856,6 @@ function checkObstacleAt(pos, size) {
     return false;
 }
 
-// Resilient Bug Navigation: incorporates unstick sweeps and diagonal clearances
 function executeBugNavigation(entity, currentPos, targetPos, sizeVec, speed, dt) {
     let toTarget = new THREE.Vector3().subVectors(targetPos, currentPos); toTarget.y = 0;
     let directDir = toTarget.clone().normalize();
@@ -1281,8 +1319,12 @@ function initGameWorld() {
 function init() {
     scene = new THREE.Scene(); scene.background = new THREE.Color(0xdce7f0); scene.fog = new THREE.FogExp2(0xdce7f0, 0.0012);
     camera = new THREE.PerspectiveCamera(62, window.innerWidth/window.innerHeight, 0.1, 1200);
-    renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight);
-    document.getElementById('three-canvas').innerHTML = ""; document.getElementById('three-canvas').appendChild(renderer.domElement);
+    
+    // preserveDrawingBuffer enables real-time high-fidelity killcam evidence capture
+    renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); 
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('three-canvas').innerHTML = ""; 
+    document.getElementById('three-canvas').appendChild(renderer.domElement);
     initGameWorld();
 }
 
@@ -1425,11 +1467,11 @@ function animate() {
         let reachedEnemyBase = r.group.position.distanceTo(targetBasePos) < 14;
 
         if (reachedEnemyBase && r.isAuthoritative) {
-            let targetBaseTeam = r.isYellowRunner ? 'red' : 'blue';
+            let winner = r.isYellowRunner ? 'blue' : 'red';
             r.explode();
             socket.emit('matchEnded', {
-                title: targetBaseTeam === 'red' ? "BLUE TEAM WINS!" : "RED TEAM WINS!",
-                desc: targetBaseTeam === 'red' ? "YOUR RUNNER BREACHED THE ENEMY BASE!" : "ENEMY RUNNER BREACHED YOUR BASE!"
+                winnerTeam: winner,
+                reason: 'Vanguard Infantry reached enemy base core'
             });
             continue;
         }
@@ -1484,11 +1526,11 @@ function animate() {
         let reachedEnemyBase = sn.group.position.distanceTo(targetBasePos) < 14;
 
         if (reachedEnemyBase && sn.isAuthoritative) {
-            let targetBaseTeam = sn.isYellowTeam ? 'red' : 'blue';
+            let winner = sn.isYellowTeam ? 'blue' : 'red';
             sn.explode();
             socket.emit('matchEnded', {
-                title: targetBaseTeam === 'red' ? "BLUE TEAM WINS!" : "RED TEAM WINS!",
-                desc: targetBaseTeam === 'red' ? "YOUR SNAIL BREACHED THE ENEMY BASE!" : "ENEMY SNAIL BREACHED YOUR BASE!"
+                winnerTeam: winner,
+                reason: 'Armored Snail penetrated base defenses'
             });
             continue;
         }
@@ -1630,7 +1672,6 @@ function animate() {
             if (myBox.containsPoint(b.position)) {
                 let hitNormal = new THREE.Vector3().subVectors(b.position, playerGroup.position).normalize();
                 
-                // Transmit hit to server for distance check, damage application, or deflection broadcast
                 socket.emit('hitRegistered', {
                     hitPos: { x: b.position.x, y: b.position.y, z: b.position.z },
                     hitNormal: { x: hitNormal.x, y: hitNormal.y, z: hitNormal.z }
@@ -1665,7 +1706,7 @@ function animate() {
                             const runnerId = `r_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
                             socket.emit('spawnUnit', { id: runnerId, type: 'runner', team: myTeam });
                         } else if (!ent.isYellowBaseMan) {
-                            ent.takeDamage(hObj.userData.partName || 'torso', 50, true);
+                            ent.takeDamage(hObj.userData.partName || 'torso', 50);
                         }
                         b.userData.life = 0;
                     }
