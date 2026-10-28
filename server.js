@@ -155,12 +155,22 @@ io.on('connection', (socket) => {
         if (socket.roomID) io.to(socket.roomID).emit('unitSpawned', data);
     });
 
-    // --- HEALTH & RESPAWN SYNCHRONIZATION ---
+    // --- HEALTH, DAMAGE & RICOCHET EVENTS ---
     socket.on('shipDamage', (data) => {
         if (socket.roomID) {
             io.to(socket.roomID).emit('healthUpdate', {
                 targetTeam: data.targetTeam,
                 newHP: data.newHP
+            });
+        }
+    });
+
+    socket.on('bulletDeflected', (data) => {
+        if (socket.roomID) {
+            io.to(socket.roomID).emit('ricochetEvent', {
+                targetTeam: data.targetTeam,
+                pos: data.pos,
+                normal: data.normal
             });
         }
     });
