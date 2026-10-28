@@ -18,7 +18,7 @@ for (let i = 1; i <= 6; i++) {
         id: roomId,
         name: `Arena 0${i}`,
         players: {}, // socketId: { team: 'blue'|'red', ready: false }
-        status: 'open' // 'open' | 'in_game'
+        status: 'open'
     };
 }
 
@@ -151,11 +151,28 @@ io.on('connection', (socket) => {
         if (socket.roomID) socket.to(socket.roomID).emit('blockPlaced', data);
     });
 
+    // Authoritative unit spawn with unique ID broadcast
     socket.on('spawnUnit', (data) => {
-        if (socket.roomID) io.to(socket.roomID).emit('unitSpawned', data);
+        if (socket.roomID) {
+            io.to(socket.roomID).emit('unitSpawned', {
+                id: data.id || `u_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                type: data.type,
+                team: data.team
+            });
+        }
     });
 
-    // --- HEALTH, DAMAGE & RICOCHET EVENTS ---
+    // Authoritative unit position sync broadcast
+    socket.on('unitSync', (data) => {
+        if (socket.roomID) socket.to(socket.roomID).emit('unitSync', data);
+    });
+
+    // Authoritative game over broadcast
+    socket.on('matchEnded', (data) => {
+        if (socket.roomID) io.to(socket.roomID).emit('matchEnded', data);
+    });
+
+    // Health, damage & ricochet
     socket.on('shipDamage', (data) => {
         if (socket.roomID) {
             io.to(socket.roomID).emit('healthUpdate', {
